@@ -1,0 +1,186 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String
+  name            String?
+  role            String   @default("USER")
+  agencyName      String?
+  apiKey          String?  @unique
+  avatar          String?  @default("blue")
+  auditSchedule   String   @default("daily")
+  staleProtection Boolean  @default(true)
+  autoPurgeCache  Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sessions          Session[]
+  sites             WordPressSite[]
+  connectedWebsites ConnectedWebsite[]
+  proposals         ActionProposal[]
+  actionLogs        ActionLogItem[]
+
+  @@map("users")
+}
+
+model ConnectedWebsite {
+  id         String   @id @default(cuid())
+  userId     String
+  siteUrl    String
+  apiKey     String
+  hmacSecret String
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("connected_websites")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+model WordPressSite {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  url             String
+  adminEmail      String
+  connectionState String    @default("not_detected")
+  health          Json
+  seoProvider     Json
+  acfVersion      String?
+  themeName       String    @default("Default")
+  lastAuditedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposals  ActionProposal[]
+  actionLogs ActionLogItem[]
+  audits     SiteAuditSummary[]
+
+  @@map("wordpress_sites")
+}
+
+model ActionProposal {
+  id                  String   @id @default(cuid())
+  siteId              String
+  userId              String?
+  targetPageId        Int
+  targetPageTitle     String
+  targetPageSlug      String
+  actionType          String
+  currentValues       Json
+  proposedValues      Json
+  approvedChecksum    String
+  currentChecksum     String
+  isStale             Boolean  @default(false)
+  seoProvider         String
+  adapterSupportLevel String
+  rollbackConfidence  String
+  possibleSideEffects Json
+  status              String   @default("AWAITING_APPROVAL")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  site WordPressSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  user User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("action_proposals")
+}
+
+model ActionLogItem {
+  id                 String   @id @default(cuid())
+  siteId             String
+  userId             String?
+  actionTitle        String
+  targetEntity       String
+  executedBy         String
+  timestamp          DateTime @default(now())
+  executionState     String
+  verificationStatus String
+  rollbackStatus     String
+  rollbackConfidence String
+  checksum           String
+  snapshotData       Json
+  sideEffects        Json
+  createdAt          DateTime @default(now())
+
+  site WordPressSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  user User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("action_logs")
+}
+
+model SiteAuditSummary {
+  id                  String   @id @default(cuid())
+  siteId              String
+  overallScore        Int
+  seoScore            Int
+  contentScore        Int
+  technicalScore      Int
+  auditDate           DateTime @default(now())
+  totalIssuesCount    Int      @default(0)
+  criticalIssuesCount Int      @default(0)
+  warningIssuesCount  Int      @default(0)
+  infoIssuesCount     Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  site   WordPressSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  issues AuditIssue[]
+
+  @@map("site_audit_summaries")
+}
+
+model AuditIssue {
+  id             String   @id @default(cuid())
+  auditSummaryId String
+  category       String
+  severity       String
+  title          String
+  description    String
+  affectedUrl    String
+  pageTitle      String
+  recommendation String
+  autoFixable    Boolean  @default(false)
+  actionPayload  Json?
+  createdAt      DateTime @default(now())
+
+  auditSummary SiteAuditSummary @relation(fields: [auditSummaryId], references: [id], onDelete: Cascade)
+
+  @@map("audit_issues")
+}
