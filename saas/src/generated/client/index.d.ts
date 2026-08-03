@@ -6188,6 +6188,8 @@ export namespace Prisma {
     url: string | null
     adminEmail: string | null
     connectionState: string | null
+    apiKey: string | null
+    hmacSecret: string | null
     acfVersion: string | null
     themeName: string | null
     lastAuditedAt: Date | null
@@ -6202,6 +6204,8 @@ export namespace Prisma {
     url: string | null
     adminEmail: string | null
     connectionState: string | null
+    apiKey: string | null
+    hmacSecret: string | null
     acfVersion: string | null
     themeName: string | null
     lastAuditedAt: Date | null
@@ -6216,6 +6220,8 @@ export namespace Prisma {
     url: number
     adminEmail: number
     connectionState: number
+    apiKey: number
+    hmacSecret: number
     health: number
     seoProvider: number
     acfVersion: number
@@ -6234,6 +6240,8 @@ export namespace Prisma {
     url?: true
     adminEmail?: true
     connectionState?: true
+    apiKey?: true
+    hmacSecret?: true
     acfVersion?: true
     themeName?: true
     lastAuditedAt?: true
@@ -6248,6 +6256,8 @@ export namespace Prisma {
     url?: true
     adminEmail?: true
     connectionState?: true
+    apiKey?: true
+    hmacSecret?: true
     acfVersion?: true
     themeName?: true
     lastAuditedAt?: true
@@ -6262,6 +6272,8 @@ export namespace Prisma {
     url?: true
     adminEmail?: true
     connectionState?: true
+    apiKey?: true
+    hmacSecret?: true
     health?: true
     seoProvider?: true
     acfVersion?: true
@@ -6351,6 +6363,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState: string
+    apiKey: string | null
+    hmacSecret: string | null
     health: JsonValue
     seoProvider: JsonValue
     acfVersion: string | null
@@ -6384,6 +6398,8 @@ export namespace Prisma {
     url?: boolean
     adminEmail?: boolean
     connectionState?: boolean
+    apiKey?: boolean
+    hmacSecret?: boolean
     health?: boolean
     seoProvider?: boolean
     acfVersion?: boolean
@@ -6405,6 +6421,8 @@ export namespace Prisma {
     url?: boolean
     adminEmail?: boolean
     connectionState?: boolean
+    apiKey?: boolean
+    hmacSecret?: boolean
     health?: boolean
     seoProvider?: boolean
     acfVersion?: boolean
@@ -6422,6 +6440,8 @@ export namespace Prisma {
     url?: boolean
     adminEmail?: boolean
     connectionState?: boolean
+    apiKey?: boolean
+    hmacSecret?: boolean
     health?: boolean
     seoProvider?: boolean
     acfVersion?: boolean
@@ -6439,6 +6459,8 @@ export namespace Prisma {
     url?: boolean
     adminEmail?: boolean
     connectionState?: boolean
+    apiKey?: boolean
+    hmacSecret?: boolean
     health?: boolean
     seoProvider?: boolean
     acfVersion?: boolean
@@ -6448,7 +6470,7 @@ export namespace Prisma {
     updatedAt?: boolean
   }
 
-  export type WordPressSiteOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "userId" | "name" | "url" | "adminEmail" | "connectionState" | "health" | "seoProvider" | "acfVersion" | "themeName" | "lastAuditedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["wordPressSite"]>
+  export type WordPressSiteOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "userId" | "name" | "url" | "adminEmail" | "connectionState" | "apiKey" | "hmacSecret" | "health" | "seoProvider" | "acfVersion" | "themeName" | "lastAuditedAt" | "createdAt" | "updatedAt", ExtArgs["result"]["wordPressSite"]>
   export type WordPressSiteInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     user?: boolean | UserDefaultArgs<ExtArgs>
     proposals?: boolean | WordPressSite$proposalsArgs<ExtArgs>
@@ -6478,6 +6500,8 @@ export namespace Prisma {
       url: string
       adminEmail: string
       connectionState: string
+      apiKey: string | null
+      hmacSecret: string | null
       health: Prisma.JsonValue
       seoProvider: Prisma.JsonValue
       acfVersion: string | null
@@ -6918,6 +6942,8 @@ export namespace Prisma {
     readonly url: FieldRef<"WordPressSite", 'String'>
     readonly adminEmail: FieldRef<"WordPressSite", 'String'>
     readonly connectionState: FieldRef<"WordPressSite", 'String'>
+    readonly apiKey: FieldRef<"WordPressSite", 'String'>
+    readonly hmacSecret: FieldRef<"WordPressSite", 'String'>
     readonly health: FieldRef<"WordPressSite", 'Json'>
     readonly seoProvider: FieldRef<"WordPressSite", 'Json'>
     readonly acfVersion: FieldRef<"WordPressSite", 'String'>
@@ -12382,6 +12408,8 @@ export namespace Prisma {
     url: 'url',
     adminEmail: 'adminEmail',
     connectionState: 'connectionState',
+    apiKey: 'apiKey',
+    hmacSecret: 'hmacSecret',
     health: 'health',
     seoProvider: 'seoProvider',
     acfVersion: 'acfVersion',
@@ -12904,6 +12932,8 @@ export namespace Prisma {
     url?: StringFilter<"WordPressSite"> | string
     adminEmail?: StringFilter<"WordPressSite"> | string
     connectionState?: StringFilter<"WordPressSite"> | string
+    apiKey?: StringNullableFilter<"WordPressSite"> | string | null
+    hmacSecret?: StringNullableFilter<"WordPressSite"> | string | null
     health?: JsonFilter<"WordPressSite">
     seoProvider?: JsonFilter<"WordPressSite">
     acfVersion?: StringNullableFilter<"WordPressSite"> | string | null
@@ -12924,6 +12954,8 @@ export namespace Prisma {
     url?: SortOrder
     adminEmail?: SortOrder
     connectionState?: SortOrder
+    apiKey?: SortOrderInput | SortOrder
+    hmacSecret?: SortOrderInput | SortOrder
     health?: SortOrder
     seoProvider?: SortOrder
     acfVersion?: SortOrderInput | SortOrder
@@ -12947,6 +12979,8 @@ export namespace Prisma {
     url?: StringFilter<"WordPressSite"> | string
     adminEmail?: StringFilter<"WordPressSite"> | string
     connectionState?: StringFilter<"WordPressSite"> | string
+    apiKey?: StringNullableFilter<"WordPressSite"> | string | null
+    hmacSecret?: StringNullableFilter<"WordPressSite"> | string | null
     health?: JsonFilter<"WordPressSite">
     seoProvider?: JsonFilter<"WordPressSite">
     acfVersion?: StringNullableFilter<"WordPressSite"> | string | null
@@ -12967,6 +13001,8 @@ export namespace Prisma {
     url?: SortOrder
     adminEmail?: SortOrder
     connectionState?: SortOrder
+    apiKey?: SortOrderInput | SortOrder
+    hmacSecret?: SortOrderInput | SortOrder
     health?: SortOrder
     seoProvider?: SortOrder
     acfVersion?: SortOrderInput | SortOrder
@@ -12989,6 +13025,8 @@ export namespace Prisma {
     url?: StringWithAggregatesFilter<"WordPressSite"> | string
     adminEmail?: StringWithAggregatesFilter<"WordPressSite"> | string
     connectionState?: StringWithAggregatesFilter<"WordPressSite"> | string
+    apiKey?: StringNullableWithAggregatesFilter<"WordPressSite"> | string | null
+    hmacSecret?: StringNullableWithAggregatesFilter<"WordPressSite"> | string | null
     health?: JsonWithAggregatesFilter<"WordPressSite">
     seoProvider?: JsonWithAggregatesFilter<"WordPressSite">
     acfVersion?: StringNullableWithAggregatesFilter<"WordPressSite"> | string | null
@@ -13751,6 +13789,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -13771,6 +13811,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -13789,6 +13831,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -13809,6 +13853,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -13828,6 +13874,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -13843,6 +13891,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -13859,6 +13909,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -14707,6 +14759,8 @@ export namespace Prisma {
     url?: SortOrder
     adminEmail?: SortOrder
     connectionState?: SortOrder
+    apiKey?: SortOrder
+    hmacSecret?: SortOrder
     health?: SortOrder
     seoProvider?: SortOrder
     acfVersion?: SortOrder
@@ -14723,6 +14777,8 @@ export namespace Prisma {
     url?: SortOrder
     adminEmail?: SortOrder
     connectionState?: SortOrder
+    apiKey?: SortOrder
+    hmacSecret?: SortOrder
     acfVersion?: SortOrder
     themeName?: SortOrder
     lastAuditedAt?: SortOrder
@@ -14737,6 +14793,8 @@ export namespace Prisma {
     url?: SortOrder
     adminEmail?: SortOrder
     connectionState?: SortOrder
+    apiKey?: SortOrder
+    hmacSecret?: SortOrder
     acfVersion?: SortOrder
     themeName?: SortOrder
     lastAuditedAt?: SortOrder
@@ -15902,6 +15960,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -15920,6 +15980,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -16121,6 +16183,8 @@ export namespace Prisma {
     url?: StringFilter<"WordPressSite"> | string
     adminEmail?: StringFilter<"WordPressSite"> | string
     connectionState?: StringFilter<"WordPressSite"> | string
+    apiKey?: StringNullableFilter<"WordPressSite"> | string | null
+    hmacSecret?: StringNullableFilter<"WordPressSite"> | string | null
     health?: JsonFilter<"WordPressSite">
     seoProvider?: JsonFilter<"WordPressSite">
     acfVersion?: StringNullableFilter<"WordPressSite"> | string | null
@@ -16737,6 +16801,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -16756,6 +16822,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -16834,6 +16902,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -16853,6 +16923,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -16921,6 +16993,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -16940,6 +17014,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -17018,6 +17094,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17037,6 +17115,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17105,6 +17185,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -17124,6 +17206,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -17195,6 +17279,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17214,6 +17300,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17352,6 +17440,8 @@ export namespace Prisma {
     url: string
     adminEmail: string
     connectionState?: string
+    apiKey?: string | null
+    hmacSecret?: string | null
     health: JsonNullValueInput | InputJsonValue
     seoProvider: JsonNullValueInput | InputJsonValue
     acfVersion?: string | null
@@ -17436,6 +17526,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17454,6 +17546,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null
@@ -17472,6 +17566,8 @@ export namespace Prisma {
     url?: StringFieldUpdateOperationsInput | string
     adminEmail?: StringFieldUpdateOperationsInput | string
     connectionState?: StringFieldUpdateOperationsInput | string
+    apiKey?: NullableStringFieldUpdateOperationsInput | string | null
+    hmacSecret?: NullableStringFieldUpdateOperationsInput | string | null
     health?: JsonNullValueInput | InputJsonValue
     seoProvider?: JsonNullValueInput | InputJsonValue
     acfVersion?: NullableStringFieldUpdateOperationsInput | string | null

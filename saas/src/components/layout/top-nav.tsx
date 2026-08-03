@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { UserMenu } from "./user-menu";
 import { ChevronRight, Globe, Bell, ShieldCheck, Menu } from "lucide-react";
 import { WordPressSite } from "../../types/wordpress";
@@ -13,20 +13,41 @@ interface TopNavProps {
 
 export function TopNav({ onMobileMenuToggle }: TopNavProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sites, setSites] = React.useState<WordPressSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>("");
 
-  React.useEffect(() => {
-    fetch("/api/websites")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.sites && data.sites.length > 0) {
+  const fetchWebsites = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/websites");
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.sites) {
           setSites(data.sites);
-          setSelectedSiteId(data.sites[0].id);
+          
+          // Check if current URL path matches /websites/[id]
+          const pathParts = pathname.split("/");
+          if (pathParts[1] === "websites" && pathParts[2] && pathParts[2] !== "connect") {
+            setSelectedSiteId(pathParts[2]);
+          } else if (data.sites.length > 0) {
+            setSelectedSiteId(data.sites[0].id);
+          }
         }
-      })
-      .catch(() => {});
-  }, []);
+      }
+    } catch (err) {
+      console.error("Header websites fetch error:", err);
+    }
+  }, [pathname]);
+
+  React.useEffect(() => {
+    fetchWebsites();
+  }, [fetchWebsites]);
+
+  const handleSelectSite = (siteId: string) => {
+    if (!siteId) return;
+    setSelectedSiteId(siteId);
+    router.push(`/websites/${siteId}`);
+  };
 
   // Generate dynamic breadcrumb items
   const pathSegments = pathname.split("/").filter(Boolean);
@@ -53,17 +74,17 @@ export function TopNav({ onMobileMenuToggle }: TopNavProps) {
           <Globe className="h-3.5 w-3.5 text-primary shrink-0" />
           <select
             value={selectedSiteId}
-            onChange={(e) => setSelectedSiteId(e.target.value)}
-            className="bg-transparent border-none text-xs font-semibold focus:outline-none cursor-pointer max-w-[140px] sm:max-w-none text-slate-100"
+            onChange={(e) => handleSelectSite(e.target.value)}
+            className="bg-transparent border-none text-xs font-semibold focus:outline-none cursor-pointer max-w-[150px] sm:max-w-none text-slate-100"
           >
             {sites.length === 0 ? (
               <option value="" className="bg-slate-900 text-slate-100">
-                No Sites Connected
+                No Websites Connected
               </option>
             ) : (
               sites.map((site) => (
                 <option key={site.id} value={site.id} className="bg-slate-900 text-slate-100 font-medium py-1">
-                  {site.name}
+                  {site.name} ({new URL(site.url).hostname})
                 </option>
               ))
             )}

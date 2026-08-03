@@ -48,28 +48,152 @@ export interface DiagnosticsCheck {
   recommendation?: string;
 }
 
+export interface DatabaseIOTest {
+  pass: boolean;
+  read_pass: boolean;
+  delete_pass: boolean;
+  latency_ms: number;
+}
+
 export interface WordPressHealthDiagnostic {
-  connectorInstalled: boolean;
-  connectorVersion: string;
-  wordpressVersion: string;
-  phpVersion: string;
-  restAvailable: boolean;
-  httpsStatus: boolean;
-  authMethods: string[];
-  authHeaderStatus: boolean;
-  appPasswordStatus: boolean;
-  multisiteStatus: boolean;
-  firewallDetected: string | null;
-  filesystemWriteMethod: string;
-  requiredCapabilitiesPass: boolean;
-  checks: DiagnosticsCheck[];
+  connectorInstalled?: boolean;
+  connectorVersion?: string;
+  wordpressVersion?: string;
+  phpVersion?: string;
+  restAvailable?: boolean;
+  httpsStatus?: boolean;
+  authMethods?: string[];
+  authHeaderStatus?: boolean;
+  appPasswordStatus?: boolean;
+  multisiteStatus?: boolean;
+  firewallDetected?: string | null;
+  filesystemWriteMethod?: string;
+  requiredCapabilitiesPass?: boolean;
+  checks?: DiagnosticsCheck[];
+  connector_installed?: boolean;
+  connector_version?: string;
+  wp_version?: string;
+  php_version?: string;
+  rest_availability?: boolean;
+  https_status?: boolean;
+  auth_methods_available?: string[];
+  auth_header_status?: boolean;
+  app_password_status?: boolean;
+  multisite_status?: boolean;
+  firewall_detection?: string | null;
+  filesystem_write_method?: string;
+  capabilities_status?: boolean;
+  database_io_test?: DatabaseIOTest;
+  seo_provider?: any;
+  active_theme?: string;
+  timestamp?: number;
+  errorMessage?: string | null;
+  recoverySuggestion?: string | null;
 }
 
 export interface SEOProviderInfo {
   name: "Yoast SEO" | "Rank Math" | "AIOSEO" | "SEOPress" | "None / Custom";
   version: string;
   adapterSupportLevel: AdapterSupportLevel;
-  lastTestedDate: string;
+  lastTestedDate?: string;
+}
+
+export interface AuditFinding {
+  id: string;
+  rule_id: string;
+  category: "seo_metadata" | "content_quality" | "media_accessibility" | "technical_structure" | "taxonomies_internal_links";
+  severity: "critical" | "warning" | "info";
+  entity_id: number;
+  entity_type: "page" | "post" | "attachment" | "media";
+  entity_title: string;
+  entity_url?: string;
+  field_name?: string;
+  current_value?: string;
+  expected_value?: string;
+  evidence: string;
+  rationale: string;
+  remediation: string;
+  auto_fixable?: boolean;
+}
+
+export interface CategoryScores {
+  seo_score: number;
+  content_score: number;
+  media_score: number;
+  technical_score: number;
+}
+
+export interface ExplainableDeduction {
+  finding_id: string;
+  rule_id: string;
+  category: string;
+  severity: string;
+  entity_title: string;
+  deduction_points: number;
+  reason: string;
+}
+
+export interface ScoringMethodology {
+  weights: Record<string, number>;
+  explainable_deductions: ExplainableDeduction[];
+  total_deduction_count: number;
+}
+
+export interface AuditReport {
+  overall_health_score: number;
+  category_scores: CategoryScores;
+  rules_evaluated_count: number;
+  total_findings_count: number;
+  scoring_methodology: ScoringMethodology;
+  findings: AuditFinding[];
+  rules_evaluated: any[];
+  timestamp: number;
+}
+
+export interface SiteAuditSummary {
+  total_items_checked: number;
+  missing_meta_descriptions_count: number;
+  missing_alt_texts_count: number;
+  thin_content_count: number;
+  title_length_warnings_count: number;
+  seo_provider_detected: string;
+}
+
+export interface SiteIssue {
+  id: string;
+  entity_id: number;
+  entity_type: "page" | "post" | "media" | "attachment";
+  entity_title: string;
+  issue_type: string;
+  severity: "critical" | "warning" | "info";
+  remediation: string;
+  rule_id?: string;
+  evidence?: string;
+  rationale?: string;
+}
+
+export interface SiteInventoryResponse {
+  site_health_score: number;
+  category_scores?: CategoryScores;
+  site_audit_summary: SiteAuditSummary;
+  audit_report?: AuditReport;
+  issues: AuditFinding[] | SiteIssue[];
+  recommendations: string[];
+  pages: any[];
+  posts: any[];
+  media_inventory: {
+    total_count: number;
+    missing_alt_count: number;
+    sample_items: any[];
+  };
+  basic_acf_discovery: {
+    acf_active: boolean;
+    acf_version: string | null;
+    field_groups: any[];
+  };
+  gutenberg_block_parsing: any[];
+  seo_providers: Record<string, { name: string; active: boolean; version: string | null }>;
+  timestamp: number;
 }
 
 export interface WordPressSite {
@@ -84,7 +208,7 @@ export interface WordPressSite {
   themeName: string;
   lastAuditedAt: string;
   createdAt: string;
-  stats: {
+  stats?: {
     totalPages: number;
     totalPosts: number;
     missingMetaTitles: number;
@@ -97,7 +221,7 @@ export interface WordPressSite {
 export interface ActionProposal {
   id: string;
   siteId: string;
-  siteName: string;
+  siteName?: string;
   targetPageId: number;
   targetPageTitle: string;
   targetPageSlug: string;
@@ -112,5 +236,6 @@ export interface ActionProposal {
   rollbackConfidence: RollbackConfidenceLevel;
   possibleSideEffects: string[];
   status: ExecutionState;
-  createdTime: string;
+  createdTime?: string;
+  createdAt?: string;
 }

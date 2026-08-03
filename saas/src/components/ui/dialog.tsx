@@ -30,35 +30,35 @@ export function Dialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
+      {/* Backdrop with solid opacity */}
       <div
-        className="fixed inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-black/80 backdrop-blur-md transition-opacity"
         onClick={onClose}
       />
 
-      {/* Modal Dialog */}
+      {/* Modal Dialog Content Container with solid background and high contrast */}
       <div
         className={cn(
-          "relative z-50 w-full rounded-2xl border border-border bg-card p-6 shadow-2xl transition-all duration-200",
+          "relative z-50 w-full rounded-xl border border-slate-800 bg-slate-900 text-slate-100 p-6 shadow-2xl transition-all duration-200 opacity-100",
           maxWidths[maxWidth]
         )}
       >
-        <div className="flex items-center justify-between border-b border-border/60 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div>
-            <h2 className="text-lg font-bold text-foreground">{title}</h2>
+            <h2 className="text-lg font-bold text-slate-100">{title}</h2>
             {description && (
-              <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{description}</p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mt-4">{children}</div>
+        <div className="mt-4 text-slate-200">{children}</div>
       </div>
     </div>
   );

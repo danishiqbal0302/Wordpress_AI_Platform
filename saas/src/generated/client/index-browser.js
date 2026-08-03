@@ -171,6 +171,8 @@ exports.Prisma.WordPressSiteScalarFieldEnum = {
   url: 'url',
   adminEmail: 'adminEmail',
   connectionState: 'connectionState',
+  apiKey: 'apiKey',
+  hmacSecret: 'hmacSecret',
   health: 'health',
   seoProvider: 'seoProvider',
   acfVersion: 'acfVersion',

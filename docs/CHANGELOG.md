@@ -5,6 +5,29 @@ All notable changes to the **WordPress AI Platform** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-08-03
+
+### Added & Enhanced
+- **Real-Time Connection Lifecycle Management**:
+  - Implemented `probeSiteConnection` classifier in [diagnostics.ts](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/saas/src/lib/diagnostics.ts) supporting 8 connection states: `not_detected`, `detected_unpaired`, `paired_auth_failing`, `limited_permissions`, `connected_healthy`, `connected_warnings`, `degraded`, `unsupported_version`.
+  - Created `POST /api/websites/[id]/reverify` endpoint in [reverify/route.ts](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/saas/src/app/api/websites/[id]/reverify/route.ts) to execute on-demand live probes against `/wp-json/wp-ai/v1/health`.
+  - Handled 8 critical connection lifecycle failure scenarios:
+    1. **Plugin Uninstalled**: Detects 404 response on `/wp-json/wp-ai/v1/health` and sets `not_detected` status with plugin re-installation guidance.
+    2. **Plugin Disabled**: Flags disabled REST routes and suggests permalink/plugin activation.
+    3. **Website Offline / DNS Error**: Captures network connection failures/timeouts and transitions status to `degraded`.
+    4. **REST API Unavailable**: Detects non-JSON or disabled REST responses.
+    5. **Invalid API Key / HMAC Secret**: Catches authentication failures.
+    6. **Firewall / WAF Block**: Detects HTTP 403/406/429 Cloudflare/Wordfence blocks and provides IP whitelist advice.
+    7. **Connection Timeout**: Enforces 3500ms timeout controller and flags latency bottlenecks.
+    8. **Connection Restored**: Automatically recovers status to `connected_healthy` when live probe passes.
+  - **Preserves Website Records**: Ensures site records, history, and audit trails are never automatically deleted when connection degrades.
+
+- **Frontend Diagnostic & Lifecycle UI**:
+  - Updated [websites/page.tsx](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/saas/src/app/(dashboard)/websites/page.tsx) with live connection status badges, error diagnostic callouts, and an interactive "Re-Verify" button for each site.
+  - Updated [websites/[id]/page.tsx](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/saas/src/app/(dashboard)/websites/[id]/page.tsx) to render real-time health probe results, recovery code snippets (`.htaccess` / WAF rules), and instant diagnostic re-verification.
+
+---
+
 ## [0.1.3] - 2026-07-31
 
 ### Added & Refactored
@@ -74,28 +97,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented [activity.ts](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/types/activity.ts): `ActionLogItem`, snapshot comparison structures, rollback confidence levels.
 
 - **Design System & UI Primitives (`src/components/ui/`)**:
-  - Built 16 custom HSL glassmorphism UI components: [Alert](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/alert.tsx), [Badge](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/badge.tsx), [Button](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/button.tsx), [Card](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/card.tsx), [Checkbox](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/checkbox.tsx), [Dialog](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/dialog.tsx), [Drawer](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/drawer.tsx), [Dropdown](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/dropdown.tsx), [EmptyState](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/empty-state.tsx), [Input](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/input.tsx), [Pagination](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/pagination.tsx), [SearchInput](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/search.tsx), [Select](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/select.tsx), [Spinner](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/spinner.tsx), [Table](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/table.tsx), [Textarea](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/ui/textarea.tsx).
-
-- **Layout Components (`src/components/layout/`)**:
-  - Implemented [Sidebar](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/layout/sidebar.tsx): Collapsible navigation drawer with active route highlighting and health state indicators.
-  - Implemented [TopNav](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/layout/top-nav.tsx): Top header with site selector dropdown, search bar, notifications, and user menu trigger.
-  - Implemented [UserMenu](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/src/components/layout/user-menu.tsx): User profile popover menu.
-
-- **Complete Route Architecture (15 Pages)**:
-  - Landing Page (`/`): Product overview, live interactive diagnostic engine mock, pricing plans, FAQ.
-  - Auth Pages (`/login`, `/register`, `/forgot-password`): Authentication forms with Zod validation.
-  - Dashboard Hub (`/dashboard`): Executive overview, stat cards, pending proposals, audit activity stream.
-  - Site Management (`/websites`, `/websites/connect`, `/websites/[id]`): Site roster, 4-step diagnostic wizard, 13 health checks inspection table, `.htaccess` resolution guide.
-  - Audit Center (`/audits`): SEO and content quality audit hub with score gauges and issue drawer.
-  - AI Copilot (`/ai-chat`): Conversational proposal assistant with SERP search preview and Checksum Approval Modal.
-  - Activity & Rollback (`/activity`): Activity log, field snapshot comparison, and 1-click rollback execution.
-  - Settings & Profile (`/settings`, `/profile`, `/billing`): Agency preferences, API keys, subscription management.
-
-- **Mock Data Store (`src/mock/data.ts`)**:
-  - Comprehensive dataset providing realistic test data for connected sites, health diagnostics, pending proposals with checksums, audit issues, and activity trails.
-
-### Fixed
-- **Root Layout & Tailwind v4 Integration**:
-  - Resolved missing root `layout.tsx` issue.
-  - Configured `@tailwindcss/postcss` in [postcss.config.mjs](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/postcss.config.mjs) for Tailwind CSS v4 compatibility.
-  - Clean TypeScript compilation (`npm run build`) passing all 15 static/dynamic routes.
+  - Built 16 custom HSL glassmorphism UI components.

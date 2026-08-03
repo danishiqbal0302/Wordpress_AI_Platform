@@ -82,7 +82,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/websites/connect">
-            <Button size="sm" className="gap-1.5 font-semibold">
+            <Button size="sm" className="gap-1.5 font-semibold bg-primary text-primary-foreground">
               <Plus className="h-4 w-4" /> Connect New Site
             </Button>
           </Link>
@@ -95,9 +95,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Connection State Warning Alert if applicable */}
-      {sites.some((s) => s.connectionState === "paired_auth_failing") && (
-        <Alert variant="warning" title="Authorization Header Warning Detected">
-          One or more websites are failing application password authentication because the web server is stripping the HTTP Authorization header.{" "}
+      {sites.some((s) => s.connectionState === "paired_auth_failing" || s.connectionState === "not_detected") && (
+        <Alert variant="warning" title="Connection Diagnostic Alert Detected">
+          One or more websites have connection issues or uninstalled connector plugins.{" "}
           <Link href="/websites" className="font-bold underline ml-1 text-amber-200 hover:text-white">
             View Diagnostics →
           </Link>
@@ -124,8 +124,10 @@ export default function DashboardPage() {
         <Card>
           <CardContent className="p-5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Average SEO Score</p>
-              <h3 className="text-2xl font-extrabold text-foreground mt-1">88/100</h3>
+              <p className="text-xs font-medium text-muted-foreground">Active Health Status</p>
+              <h3 className="text-2xl font-extrabold text-foreground mt-1">
+                {sites.length > 0 ? `${Math.round((healthyCount / sites.length) * 100)}%` : "--"}
+              </h3>
               <span className="text-[10px] text-emerald-400 font-semibold mt-1 inline-block">
                 PostgreSQL Synced
               </span>
@@ -154,10 +156,10 @@ export default function DashboardPage() {
         <Card>
           <CardContent className="p-5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Adapter Compatibility</p>
-              <h3 className="text-2xl font-extrabold text-foreground mt-1">Yoast 22.6</h3>
+              <p className="text-xs font-medium text-muted-foreground">Plugin Adapters</p>
+              <h3 className="text-2xl font-extrabold text-foreground mt-1">Yoast / RankMath</h3>
               <span className="text-[10px] text-emerald-400 font-semibold mt-1 inline-block">
-                100% Contract Test Passed
+                Verified Contract Testing
               </span>
             </div>
             <div className="p-3 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
@@ -204,7 +206,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[11px] text-muted-foreground">
-                            Theme: <strong className="text-foreground">{site.themeName}</strong>
+                            Theme: <strong className="text-foreground">{site.themeName || "Default"}</strong>
                           </span>
                         </div>
                       </div>
@@ -213,6 +215,9 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-3">
                       {site.connectionState === "connected_healthy" && (
                         <Badge variant="success">Healthy</Badge>
+                      )}
+                      {site.connectionState === "not_detected" && (
+                        <Badge variant="destructive">Uninstalled</Badge>
                       )}
                       {site.connectionState === "connected_warnings" && (
                         <Badge variant="warning">Warnings</Badge>
@@ -276,7 +281,7 @@ export default function DashboardPage() {
                           <span>Rollback Level: <strong>Full Field Snapshot</strong></span>
                         </div>
                         <Link href="/ai-chat">
-                          <Button size="sm" className="font-semibold text-xs gap-1">
+                          <Button size="sm" className="font-semibold text-xs gap-1 bg-primary text-primary-foreground">
                             Review in Copilot <ArrowRight className="h-3.5 w-3.5" />
                           </Button>
                         </Link>

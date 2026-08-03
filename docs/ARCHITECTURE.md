@@ -65,15 +65,19 @@
   7. `degraded`: Intermittent timeouts or proxy issues detected.
   8. `unsupported_version`: WordPress or PHP version below minimum requirement.
 
-### Subsystem 2: Read-Only Website Understanding
-- **Authority**: Section 7.2 of Strategy Document
-- **Responsibility**: Safely inspect site content structures without modification risks.
+### Subsystem 2: Read-Only Modular Auditing & Website Understanding
+- **Authority**: Section 7.2 of Strategy Document & [AUDIT_FRAMEWORK.md](file:///c:/Users/tariq/Desktop/WordPress%20AI%20Platform/docs/AUDIT_FRAMEWORK.md)
+- **Responsibility**: Safely inspect site content structures without modification risks using a production-grade, extensible, rule-based audit engine.
+- **Architecture & Principles**:
+  - **Decoupled Rule Evaluators (`WP_AI_Audit_Rule`)**: Pure evaluators that inspect verified data and return DTO findings (`WP_AI_Audit_Finding`). Rules never calculate scores or modify weights.
+  - **Centralized & Configurable Scoring Engine (`WP_AI_Scoring_Config` & `WP_AI_Scoring_Engine`)**: Defines category weights (SEO 35%, Content 30%, Media 20%, Technical 15%), severity deduction tables, and explainable score formulas.
+  - **Stable Rule Identification**: Permanent unique identifiers (`SEO_001`, `SEO_002`, `CONTENT_001`, `MEDIA_001`, `TECH_001`) attached to every finding and consistent across plugin, API, UI, and docs.
 - **Scope**:
-  - Gutenberg text block discovery & structural parsing.
-  - Classic Editor raw HTML inspection.
-  - Basic ACF field discovery (Text, Textarea, WYSIWYG, Image, URL).
+  - Gutenberg text block discovery & structural parsing (`has_blocks`, `parse_blocks`).
+  - Classic Editor raw HTML inspection & regex-based clean word count calculations.
+  - Basic ACF field discovery (Text, Textarea, WYSIWYG, Image, URL field groups).
   - SEO Provider Detection (Yoast SEO, Rank Math, AIOSEO, SEOPress).
-  - Automated Site Audits: missing title tags, missing meta descriptions, missing image ALT attributes, duplicate titles/descriptions, broken internal links.
+  - Modular Site Audits: missing title tags, missing meta descriptions, missing image ALT attributes, duplicate page titles, thin content bodies, and orphan pages.
 
 ### Subsystem 3: Deterministic Write Engine & Stale Target Safeguards
 - **Authority**: Section 5 & 9 of Strategy Document

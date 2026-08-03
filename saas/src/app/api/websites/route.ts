@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "../../../lib/prisma";
 import { verifyToken } from "../../../lib/auth";
+import { probeSiteConnection } from "../../../lib/diagnostics";
 
 export async function GET(req: Request) {
   try {
@@ -54,35 +55,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Website name and URL are required." }, { status: 400 });
     }
 
+    let formattedUrl = url.trim();
+    if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
+      formattedUrl = "https://" + formattedUrl;
+    }
+
+    // Run initial probe
+    const probeResult = await probeSiteConnection(formattedUrl);
+
     const site = await prisma.wordPressSite.create({
       data: {
         userId: payload.userId,
         name,
-        url,
-        adminEmail: adminEmail || "admin@" + new URL(url.startsWith("http") ? url : "https://" + url).hostname,
-        connectionState: "connected_healthy",
+        url: formattedUrl,
+        adminEmail: adminEmail || "admin@" + new URL(formattedUrl).hostname,
+        connectionState: probeResult.connectionState,
         themeName: themeName || "Astra Pro",
         seoProvider: seoProvider || { name: "Yoast SEO", version: "22.6", adapterSupportLevel: "verified", lastTestedDate: "2026-07-25" },
-        health: {
-          connectorInstalled: true,
-          connectorVersion: "1.4.2",
-          wordpressVersion: "6.5.3",
-          phpVersion: "8.2.14",
-          restAvailable: true,
-          httpsStatus: true,
-          authMethods: ["application_passwords", "jwt_bearer"],
-          authHeaderStatus: true,
-          appPasswordStatus: true,
-          multisiteStatus: false,
-          firewallDetected: null,
-          filesystemWriteMethod: "direct",
-          requiredCapabilitiesPass: true,
-          checks: [
-            { id: "c1", name: "REST API Endpoint", status: "pass", message: "Available at /wp-json/" },
-            { id: "c2", name: "Authorization Header", status: "pass", message: "Header preserved by server" },
-            { id: "c3", name: "Service User Capabilities", status: "pass", message: "edit_posts, edit_pages active" },
-          ],
-        },
+        health: probeResult.healthDiagnostics as any,
+        lastAuditedAt: new Date(),
       },
     });
 

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { prisma } from "../../../../lib/prisma";
 import { verifyToken } from "../../../../lib/auth";
+import { probeSiteConnection } from "../../../../lib/diagnostics";
 
 const connectSchema = z.object({
   siteUrl: z.string().min(1, "Site URL is required."),
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    console.log("[Websites Connect API] Received request:", body);
+    console.log("[Websites Connect API] Received connection request:", body);
 
     const result = connectSchema.safeParse(body);
     if (!result.success) {
@@ -46,54 +47,29 @@ export async function POST(req: Request) {
       formattedUrl = "https://" + formattedUrl;
     }
 
-    // Ping WordPress Plugin Health REST Endpoint
-    const healthUrl = `${formattedUrl.replace(/\/$/, "")}/wp-json/wp-ai/v1/health`;
-    let healthDiagnostics: any = {
-      status: "healthy",
-      connectorVersion: "1.4.2",
-      wordpressVersion: "6.5.3",
-      phpVersion: "8.2.14",
-      sslStatus: formattedUrl.startsWith("https://"),
-      restReachable: true,
-      seoProvider: { name: "Yoast SEO", version: "22.6", adapterSupportLevel: "verified" },
-    };
+    // Live Probe against WordPress Plugin Health REST Endpoint
+    const probeResult = await probeSiteConnection(formattedUrl);
+    const healthDiagnostics = probeResult.healthDiagnostics;
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-      const healthRes = await fetch(healthUrl, {
-        method: "GET",
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (healthRes.ok) {
-        const liveDiagnostics = await healthRes.json();
-        if (liveDiagnostics && liveDiagnostics.status) {
-          healthDiagnostics = liveDiagnostics;
-        }
-      }
-    } catch (e) {
-      console.warn("[Websites Connect API] Plugin REST ping notice (using verified diagnostic probe):", e);
-    }
-
-    // Upsert ConnectedWebsite record in PostgreSQL
+    // Create or update ConnectedWebsite record in PostgreSQL
     let connectedRecord;
     if ((prisma as any).connectedWebsite) {
-      connectedRecord = await (prisma as any).connectedWebsite.create({
-        data: {
-          userId: payload.userId,
-          siteUrl: formattedUrl,
-          apiKey,
-          hmacSecret,
-          status: "active",
-        },
-      });
+      try {
+        connectedRecord = await (prisma as any).connectedWebsite.create({
+          data: {
+            userId: payload.userId,
+            siteUrl: formattedUrl,
+            apiKey: apiKey.trim(),
+            hmacSecret: hmacSecret.trim(),
+            status: probeResult.connectionState === "connected_healthy" ? "active" : "degraded",
+          },
+        });
+      } catch (e) {
+        console.warn("[Websites Connect API] ConnectedWebsite create notice:", e);
+      }
     }
 
-    // Create or update corresponding WordPressSite record for Dashboard display
+    // Create corresponding WordPressSite record for Dashboard display with apiKey & hmacSecret
     const siteName = new URL(formattedUrl).hostname.replace("www.", "");
     const siteRecord = await prisma.wordPressSite.create({
       data: {
@@ -101,11 +77,12 @@ export async function POST(req: Request) {
         name: siteName.charAt(0).toUpperCase() + siteName.slice(1),
         url: formattedUrl,
         adminEmail: "admin@" + siteName,
-        connectionState: "connected_healthy",
-        health: healthDiagnostics,
-        seoProvider: healthDiagnostics.seoProvider || { name: "Yoast SEO", version: "22.6", adapterSupportLevel: "verified" },
-        themeName: "Astra Pro",
-        acfVersion: "6.2.7",
+        connectionState: probeResult.connectionState,
+        apiKey: apiKey.trim(),
+        hmacSecret: hmacSecret.trim(),
+        health: healthDiagnostics as any,
+        seoProvider: healthDiagnostics.seo_provider || { name: "Yoast SEO", version: "22.6", adapterSupportLevel: "verified" },
+        themeName: healthDiagnostics.active_theme || "WordPress Theme",
         lastAuditedAt: new Date(),
       },
     });

@@ -79,6 +79,8 @@ model WordPressSite {
   url             String
   adminEmail      String
   connectionState String    @default("not_detected")
+  apiKey          String?
+  hmacSecret      String?
   health          Json
   seoProvider     Json
   acfVersion      String?
