@@ -29,7 +29,7 @@ class WP_AI_Rule_Content_001 extends WP_AI_Audit_Rule {
             $status = isset($entity['status']) ? $entity['status'] : 'publish';
             $wc     = isset($entity['word_count']) ? intval($entity['word_count']) : 0;
 
-            if ($status === 'publish' && $wc < 300) {
+            if ($status === 'publish' && $wc > 0 && $wc < 300) {
                 $findings[] = new WP_AI_Audit_Finding(array(
                     'id'             => 'finding_content_001_' . $entity['id'],
                     'rule_id'        => $this->get_id(),

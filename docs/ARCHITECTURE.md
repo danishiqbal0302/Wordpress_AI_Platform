@@ -72,11 +72,18 @@
   - **Decoupled Rule Evaluators (`WP_AI_Audit_Rule`)**: Pure evaluators that inspect verified data and return DTO findings (`WP_AI_Audit_Finding`). Rules never calculate scores or modify weights.
   - **Centralized & Configurable Scoring Engine (`WP_AI_Scoring_Config` & `WP_AI_Scoring_Engine`)**: Defines category weights (SEO 35%, Content 30%, Media 20%, Technical 15%), severity deduction tables, and explainable score formulas.
   - **Stable Rule Identification**: Permanent unique identifiers (`SEO_001`, `SEO_002`, `CONTENT_001`, `MEDIA_001`, `TECH_001`) attached to every finding and consistent across plugin, API, UI, and docs.
-- **Scope**:
-  - Gutenberg text block discovery & structural parsing (`has_blocks`, `parse_blocks`).
-  - Classic Editor raw HTML inspection & regex-based clean word count calculations.
-  - Basic ACF field discovery (Text, Textarea, WYSIWYG, Image, URL field groups).
+- **Expanded Phase 2 Inventory Scope**:
+  - Pages with parent/child tree hierarchy (`pages_hierarchy`, `parent`, `ancestors`, `depth`, `children`).
+  - Posts with detailed category and tag objects (`categories_detail`, `tags_detail`).
+  - Supported Custom Post Types (CPTs) discovery (`custom_post_types`, items, taxonomy associations, archive status).
+  - Full Taxonomies Inventory (`categories`, `tags`, `custom_taxonomies`).
+  - Media Library Inventory (file dimensions, size, mime type, ALT text, parent post associations).
+  - Navigation Menus Discovery (`navigation_menus`, menu locations, assigned items, item hierarchy).
+  - Gutenberg Block Parsing & Classic HTML Content Breakdown (`heading_levels` H1-H6, `paragraph_count`, `image_count`, `links_count`, `has_h1`).
+  - ACF Field Groups & Field Schemas (`basic_acf_discovery`, field types, location rules, required status).
   - SEO Provider Detection (Yoast SEO, Rank Math, AIOSEO, SEOPress).
+  - Active Theme Specs (`active_theme`, theme supports, parent/child theme status).
+  - Active Auditing Plugins (`active_plugins_auditing`, categorizing SEO, Caching, Security, Page Builders, Forms, E-Commerce).
   - Modular Site Audits: missing title tags, missing meta descriptions, missing image ALT attributes, duplicate page titles, thin content bodies, and orphan pages.
 
 ### Subsystem 3: Deterministic Write Engine & Stale Target Safeguards

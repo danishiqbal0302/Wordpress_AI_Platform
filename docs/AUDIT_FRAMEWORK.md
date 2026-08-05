@@ -85,8 +85,28 @@ $$\text{Overall Health Score} = (0.35 \times \text{SEO}) + (0.30 \times \text{Co
 | `SEO_001` | `seo_metadata` | Missing Meta Description | `critical` |
 | `SEO_002` | `seo_metadata` | Suboptimal Title Length | `warning` |
 | `SEO_003` | `seo_metadata` | Missing Focus Keyword | `warning` |
-| `CONTENT_001` | `content_quality` | Thin Content Body | `critical` |
-| `CONTENT_002` | `content_quality` | Heading Hierarchy Skip | `warning` |
+| `SEO_004` | `seo_metadata` | Missing SEO Title Tag | `critical` |
+| `SEO_005` | `seo_metadata` | Duplicate SEO Titles Across Entities | `critical` |
+| `SEO_006` | `seo_metadata` | Duplicate Meta Descriptions Across Entities | `critical` |
+| `SEO_007` | `seo_metadata` | Suboptimal Meta Description Length | `warning` |
+| `SEO_008` | `seo_metadata` | Missing Canonical URL Tag | `warning` |
+| `SEO_009` | `seo_metadata` | Missing Open Graph Social Metadata | `warning` |
+| `SEO_010` | `seo_metadata` | Missing Twitter/X Card Metadata | `info` |
+| `SEO_011` | `seo_metadata` | Poor Permalink Slug Quality | `warning` |
+| `SEO_012` | `seo_metadata` | Duplicate Permalink Slugs | `critical` |
+| `SEO_013` | `seo_metadata` | Indexability Metadata Directive Issues | `critical` |
+| `SEO_014` | `seo_metadata` | Multiple SEO Plugins Active Simultaneously | `critical` |
+| `SEO_015` | `seo_metadata` | SEO Provider Global Configuration Inconsistency | `critical` |
+| `CONTENT_001` | `content_quality` | Thin Content Body (< 300 words) | `critical` |
+| `CONTENT_002` | `content_quality` | Empty Page Body (0 words) | `critical` |
+| `CONTENT_003` | `content_quality` | Missing H1 Heading Element | `critical` |
+| `CONTENT_004` | `content_quality` | Multiple H1 Heading Elements | `warning` |
+| `CONTENT_005` | `content_quality` | Skipped Heading Levels / Incorrect Hierarchy | `warning` |
+| `CONTENT_006` | `content_quality` | Excessively Long Page or Post Title (> 70 chars) | `warning` |
+| `CONTENT_007` | `content_quality` | Very Short Page or Post Title (< 10 chars) | `warning` |
+| `CONTENT_008` | `content_quality` | Missing Introductory Lead Paragraph | `warning` |
+| `CONTENT_009` | `content_quality` | Duplicate Page or Post Titles Across Entities | `critical` |
+| `CONTENT_010` | `content_quality` | Unformatted Wall of Text (> 500 words without subheadings) | `warning` |
 | `MEDIA_001` | `media_accessibility` | Missing Image Alternative Text | `warning` |
 | `TECH_001` | `technical_structure` | Duplicate Page Title | `critical` |
 | `TECH_002` | `technical_structure` | Empty ACF Field on Published Entity | `info` |

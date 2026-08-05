@@ -113,22 +113,31 @@ export async function POST(req: Request) {
     }
 
     const healthScore = liveInventory?.site_health_score ?? 92;
+    const catScores = liveInventory?.category_scores || {};
     const rawIssues = liveInventory?.issues || [];
 
     // Map live issues to AuditIssue schema
     const issuesData = rawIssues.map((iss: any) => ({
-      category: iss.entity_type === "media" ? "Accessibility" : "SEO",
+      category: iss.category || (iss.entity_type === "media" ? "media_accessibility" : "seo_metadata"),
       severity: iss.severity === "error" ? "critical" : iss.severity || "warning",
-      title: iss.issue_type ? iss.issue_type.replace(/_/g, " ") : "Content Issue",
-      description: iss.remediation || `Issue detected on ${iss.entity_title}`,
-      affectedUrl: `${firstSite.url}/?p=${iss.entity_id}`,
+      title: iss.rule_id ? `${iss.rule_id}: ${iss.field_name || "Issue"}` : (iss.issue_type ? iss.issue_type.replace(/_/g, " ") : "Content Issue"),
+      description: iss.evidence || iss.remediation || `Issue detected on ${iss.entity_title}`,
+      affectedUrl: iss.entity_url || `${firstSite.url}/?p=${iss.entity_id}`,
       pageTitle: iss.entity_title || "Untitled",
       recommendation: iss.remediation || "Review and update metadata.",
       autoFixable: true,
       actionPayload: {
-        actionType: "update_meta_description",
-        field: "meta_description",
-        suggestedValue: "",
+        rule_id: iss.rule_id || "SEO_001",
+        category: iss.category || "seo_metadata",
+        severity: iss.severity || "warning",
+        evidence: iss.evidence || "",
+        rationale: iss.rationale || "",
+        current_value: iss.current_value || "",
+        expected_value: iss.expected_value || "",
+        remediation: iss.remediation || "",
+        entity_id: iss.entity_id || 0,
+        entity_title: iss.entity_title || "Untitled",
+        entity_url: iss.entity_url || "",
       },
     }));
 
@@ -137,9 +146,9 @@ export async function POST(req: Request) {
       data: {
         siteId: firstSite.id,
         overallScore: healthScore,
-        seoScore: healthScore,
-        contentScore: healthScore,
-        technicalScore: healthScore,
+        seoScore: catScores.seo_score ?? healthScore,
+        contentScore: catScores.content_score ?? healthScore,
+        technicalScore: catScores.technical_score ?? healthScore,
         totalIssuesCount: issuesData.length,
         criticalIssuesCount: issuesData.filter((i: any) => i.severity === "critical").length,
         warningIssuesCount: issuesData.filter((i: any) => i.severity === "warning").length,

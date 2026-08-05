@@ -172,6 +172,105 @@ export interface SiteIssue {
   rationale?: string;
 }
 
+export interface PageNode {
+  id: number;
+  title: string;
+  slug: string;
+  child_ids: number[];
+  child_count: number;
+}
+
+export interface CustomPostTypeItem {
+  id: number;
+  title: string;
+  slug: string;
+  status: string;
+  post_type: string;
+  modified_gmt: string;
+  word_count: number;
+  meta_description: string;
+  focus_keyword: string;
+  has_blocks: boolean;
+}
+
+export interface CustomPostTypeGroup {
+  name: string;
+  label: string;
+  singular_name: string;
+  has_archive: boolean;
+  hierarchical: boolean;
+  taxonomies: string[];
+  total_count: number;
+  items: CustomPostTypeItem[];
+}
+
+export interface TaxonomyTerm {
+  id: number;
+  name: string;
+  slug: string;
+  description?: string;
+  parent?: number;
+  count: number;
+}
+
+export interface CustomTaxonomyInfo {
+  name: string;
+  label: string;
+  object_type: string[];
+  hierarchical: boolean;
+  terms_count: number;
+  terms: TaxonomyTerm[];
+}
+
+export interface TaxonomiesInventory {
+  categories: TaxonomyTerm[];
+  tags: TaxonomyTerm[];
+  custom_taxonomies: CustomTaxonomyInfo[];
+}
+
+export interface NavMenuItem {
+  id: number;
+  title: string;
+  url: string;
+  target?: string;
+  parent_id: number;
+  object_type: string;
+  object_id: number;
+}
+
+export interface NavMenu {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+  assigned_locations: string[];
+  items_count: number;
+  items: NavMenuItem[];
+}
+
+export interface NavigationMenusInventory {
+  registered_locations: string[];
+  menus_count: number;
+  menus: NavMenu[];
+}
+
+export interface ActiveThemeSpecs {
+  name: string;
+  stylesheet: string;
+  version: string;
+  author?: string;
+  is_child_theme: boolean;
+  parent_theme?: string | null;
+  theme_supports: Record<string, boolean>;
+}
+
+export interface AuditingPluginItem {
+  plugin_file: string;
+  name: string;
+  category: string;
+  active: boolean;
+}
+
 export interface SiteInventoryResponse {
   site_health_score: number;
   category_scores?: CategoryScores;
@@ -180,12 +279,16 @@ export interface SiteInventoryResponse {
   issues: AuditFinding[] | SiteIssue[];
   recommendations: string[];
   pages: any[];
+  pages_hierarchy?: PageNode[];
   posts: any[];
+  custom_post_types?: CustomPostTypeGroup[];
+  taxonomies?: TaxonomiesInventory;
   media_inventory: {
     total_count: number;
     missing_alt_count: number;
     sample_items: any[];
   };
+  navigation_menus?: NavigationMenusInventory;
   basic_acf_discovery: {
     acf_active: boolean;
     acf_version: string | null;
@@ -193,6 +296,8 @@ export interface SiteInventoryResponse {
   };
   gutenberg_block_parsing: any[];
   seo_providers: Record<string, { name: string; active: boolean; version: string | null }>;
+  active_theme?: ActiveThemeSpecs;
+  active_plugins_auditing?: AuditingPluginItem[];
   timestamp: number;
 }
 

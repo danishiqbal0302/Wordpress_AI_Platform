@@ -8,10 +8,36 @@ require_once dirname(__FILE__) . '/class-wp-ai-audit-finding.php';
 require_once dirname(__FILE__) . '/class-wp-ai-scoring-config.php';
 require_once dirname(__FILE__) . '/class-wp-ai-scoring-engine.php';
 
-// Include default modular rules
+// Include default modular rules - SEO Category
 require_once dirname(__FILE__) . '/rules/class-rule-seo-001.php';
 require_once dirname(__FILE__) . '/rules/class-rule-seo-002.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-003.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-004.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-005.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-006.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-007.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-008.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-009.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-010.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-011.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-012.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-013.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-014.php';
+require_once dirname(__FILE__) . '/rules/class-rule-seo-015.php';
+
+// Include default modular rules - Content Quality Category
 require_once dirname(__FILE__) . '/rules/class-rule-content-001.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-002.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-003.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-004.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-005.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-006.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-007.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-008.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-009.php';
+require_once dirname(__FILE__) . '/rules/class-rule-content-010.php';
+
+// Include default modular rules - Media & Tech Categories
 require_once dirname(__FILE__) . '/rules/class-rule-media-001.php';
 require_once dirname(__FILE__) . '/rules/class-rule-tech-001.php';
 
@@ -26,9 +52,36 @@ class WP_AI_Audit_Engine {
      * Register core default rules
      */
     private function register_default_rules() {
+        // SEO Rules
         $this->register_rule(new WP_AI_Rule_SEO_001());
         $this->register_rule(new WP_AI_Rule_SEO_002());
+        $this->register_rule(new WP_AI_Rule_SEO_003());
+        $this->register_rule(new WP_AI_Rule_SEO_004());
+        $this->register_rule(new WP_AI_Rule_SEO_005());
+        $this->register_rule(new WP_AI_Rule_SEO_006());
+        $this->register_rule(new WP_AI_Rule_SEO_007());
+        $this->register_rule(new WP_AI_Rule_SEO_008());
+        $this->register_rule(new WP_AI_Rule_SEO_009());
+        $this->register_rule(new WP_AI_Rule_SEO_010());
+        $this->register_rule(new WP_AI_Rule_SEO_011());
+        $this->register_rule(new WP_AI_Rule_SEO_012());
+        $this->register_rule(new WP_AI_Rule_SEO_013());
+        $this->register_rule(new WP_AI_Rule_SEO_014());
+        $this->register_rule(new WP_AI_Rule_SEO_015());
+
+        // Content Quality Rules
         $this->register_rule(new WP_AI_Rule_Content_001());
+        $this->register_rule(new WP_AI_Rule_Content_002());
+        $this->register_rule(new WP_AI_Rule_Content_003());
+        $this->register_rule(new WP_AI_Rule_Content_004());
+        $this->register_rule(new WP_AI_Rule_Content_005());
+        $this->register_rule(new WP_AI_Rule_Content_006());
+        $this->register_rule(new WP_AI_Rule_Content_007());
+        $this->register_rule(new WP_AI_Rule_Content_008());
+        $this->register_rule(new WP_AI_Rule_Content_009());
+        $this->register_rule(new WP_AI_Rule_Content_010());
+
+        // Media & Technical Rules
         $this->register_rule(new WP_AI_Rule_Media_001());
         $this->register_rule(new WP_AI_Rule_Tech_001());
 
