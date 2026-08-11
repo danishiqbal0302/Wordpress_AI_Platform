@@ -54,10 +54,46 @@ class WP_AI_Rollback {
             }
         }
 
-        // Calculate Post Checksum after Rollback
-        $restored_post  = get_post($post_id);
-        $restored_meta  = get_post_meta($post_id);
-        $payload        = $restored_post->post_title . '|' . $restored_post->post_excerpt . '|' . serialize($restored_meta);
+        // Cache Invalidation for Target Entity
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+
+        // Restore Parent Post Content & Elementor Meta if present in snapshot
+        if (isset($snapshot_data['parent_posts']) && is_array($snapshot_data['parent_posts'])) {
+            foreach ($snapshot_data['parent_posts'] as $parent_item) {
+                if (isset($parent_item['post_id']) && $parent_item['post_id'] > 0) {
+                    $parent_id = intval($parent_item['post_id']);
+                    if (isset($parent_item['post_content'])) {
+                        wp_update_post(array(
+                            'ID'           => $parent_id,
+                            'post_content' => $parent_item['post_content'],
+                        ));
+                    }
+                    if (isset($parent_item['elementor_data'])) {
+                        if (!empty($parent_item['elementor_data'])) {
+                            update_post_meta($parent_id, '_elementor_data', wp_slash($parent_item['elementor_data']));
+                        } else {
+                            delete_post_meta($parent_id, '_elementor_data');
+                        }
+                    }
+                    clean_post_cache($parent_id);
+                    wp_cache_delete($parent_id, 'post_meta');
+                }
+            }
+        }
+
+        // Post-Restoration Verification Check
+        $restored_post = get_post($post_id);
+        if (!$restored_post) {
+            return new WP_Error(
+                'rest_rollback_failed',
+                'Failed to retrieve restored post record after rollback.',
+                array('status' => 500)
+            );
+        }
+
+        $restored_meta     = get_post_meta($post_id);
+        $payload           = $restored_post->post_title . '|' . $restored_post->post_excerpt . '|' . serialize($restored_meta);
         $restored_checksum = md5($payload);
 
         return rest_ensure_response(array(

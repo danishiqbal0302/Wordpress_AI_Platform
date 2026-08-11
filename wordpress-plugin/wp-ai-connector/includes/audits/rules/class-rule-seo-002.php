@@ -26,8 +26,10 @@ class WP_AI_Rule_SEO_002 extends WP_AI_Audit_Rule {
         );
 
         foreach ($entities as $entity) {
-            $title = isset($entity['title']) ? trim($entity['title']) : '';
-            $len   = mb_strlen($title);
+            $seo_title = isset($entity['seo_title']) ? trim($entity['seo_title']) : '';
+            $title     = !empty($seo_title) ? $seo_title : (isset($entity['title']) ? trim($entity['title']) : '');
+            $display_title = isset($entity['title']) ? trim($entity['title']) : $title;
+            $len       = mb_strlen($title);
             if ($len < 30 || $len > 60) {
                 $findings[] = new WP_AI_Audit_Finding(array(
                     'id'             => 'finding_seo_002_' . $entity['id'],
@@ -36,12 +38,12 @@ class WP_AI_Rule_SEO_002 extends WP_AI_Audit_Rule {
                     'severity'       => $this->get_severity(),
                     'entity_id'      => $entity['id'],
                     'entity_type'    => isset($entity['categories']) ? 'post' : 'page',
-                    'entity_title'   => $title,
+                    'entity_title'   => $display_title,
                     'entity_url'     => isset($entity['slug']) ? '/' . $entity['slug'] : '',
-                    'field_name'     => 'post_title',
+                    'field_name'     => 'seo_title',
                     'current_value'  => $title . ' (' . $len . ' chars)',
                     'expected_value' => 'Title string between 30 and 60 characters',
-                    'evidence'       => 'Title length for "' . $title . '" is ' . $len . ' characters (optimal range is 30-60 characters).',
+                    'evidence'       => 'SEO Title length for "' . $display_title . '" is ' . $len . ' characters (optimal range is 30-60 characters).',
                     'rationale'      => $this->get_rationale(),
                     'remediation'    => $this->get_remediation(),
                     'auto_fixable'   => true,

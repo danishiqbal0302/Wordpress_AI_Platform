@@ -67,6 +67,8 @@ export default function DashboardPage() {
 
   const healthyCount = sites.filter((s) => s.connectionState === "connected_healthy").length;
   const warningCount = sites.filter((s) => s.connectionState === "connected_warnings" || s.connectionState === "paired_auth_failing").length;
+  const pendingProposalsList = proposals.filter((p) => p.status === "AWAITING_APPROVAL" || (p.status as string) === "PENDING");
+  const pendingProposalsCount = pendingProposalsList.length;
 
   return (
     <div className="space-y-8 animate-in fade-in">
@@ -142,7 +144,7 @@ export default function DashboardPage() {
           <CardContent className="p-5 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-muted-foreground">Pending Proposals</p>
-              <h3 className="text-2xl font-extrabold text-foreground mt-1">{proposals.length}</h3>
+              <h3 className="text-2xl font-extrabold text-foreground mt-1">{pendingProposalsCount}</h3>
               <span className="text-[10px] text-amber-400 font-semibold mt-1 inline-block">
                 Awaiting Checksum Approval
               </span>
@@ -249,12 +251,12 @@ export default function DashboardPage() {
               <Badge variant="wp">Awaiting Approval</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
-              {proposals.length === 0 ? (
+              {pendingProposalsList.length === 0 ? (
                 <div className="p-6 text-center text-xs text-muted-foreground">
                   Zero pending proposals. All website metadata is up to date.
                 </div>
               ) : (
-                proposals.map((prop) => {
+                pendingProposalsList.map((prop) => {
                   const currentObj = (prop.currentValues as Record<string, string>) || {};
                   const proposedObj = (prop.proposedValues as Record<string, string>) || {};
                   return (
@@ -311,7 +313,7 @@ export default function DashboardPage() {
                   No activity logged yet.
                 </div>
               ) : (
-                activities.map((act) => (
+                activities.slice(0, 5).map((act) => (
                   <div key={act.id} className="p-3 rounded-xl bg-muted/20 border border-border/60 space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-foreground">{act.actionTitle}</span>

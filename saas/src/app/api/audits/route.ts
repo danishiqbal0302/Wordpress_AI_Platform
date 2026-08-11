@@ -136,6 +136,7 @@ export async function POST(req: Request) {
         expected_value: iss.expected_value || "",
         remediation: iss.remediation || "",
         entity_id: iss.entity_id || 0,
+        entity_type: iss.entity_type,
         entity_title: iss.entity_title || "Untitled",
         entity_url: iss.entity_url || "",
       },

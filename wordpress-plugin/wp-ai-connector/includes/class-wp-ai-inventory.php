@@ -76,13 +76,13 @@ class WP_AI_Inventory {
         }
 
         // 2. Pages Inventory with Parent/Child Hierarchy
-        $pages_data = $this->get_pages_inventory();
+        $pages_data = $this->get_pages_inventory($active_seo_provider_name);
         $pages           = $pages_data['pages'];
         $pages_raw       = $pages_data['pages_raw'];
         $pages_hierarchy = $pages_data['pages_hierarchy'];
 
         // 3. Posts Inventory with Taxonomies Detail
-        $posts_data = $this->get_posts_inventory();
+        $posts_data = $this->get_posts_inventory($active_seo_provider_name);
         $posts      = $posts_data['posts'];
         $posts_raw  = $posts_data['posts_raw'];
 
@@ -196,7 +196,7 @@ class WP_AI_Inventory {
     /**
      * Get Pages Inventory with parent/child hierarchy details
      */
-    private function get_pages_inventory() {
+    private function get_pages_inventory($active_provider = 'None / Core') {
         $pages_raw = get_pages(array(
             'number'      => 50,
             'post_status' => array('publish', 'draft', 'pending', 'private'),
@@ -206,7 +206,7 @@ class WP_AI_Inventory {
         $pages_hierarchy = array();
 
         foreach ($pages_raw as $page) {
-            $seo_meta   = $this->extract_seo_meta($page->ID);
+            $seo_meta   = $this->extract_seo_meta($page->ID, $active_provider);
             $content_struct = $this->extract_content_structure($page->post_content);
             $word_count = $this->calculate_word_count($page->post_content);
             $title_len  = mb_strlen($page->post_title);
@@ -257,7 +257,7 @@ class WP_AI_Inventory {
     /**
      * Get Posts Inventory with taxonomies details
      */
-    private function get_posts_inventory() {
+    private function get_posts_inventory($active_provider = 'None / Core') {
         $posts_raw = get_posts(array(
             'numberposts' => 50,
             'post_status' => array('publish', 'draft', 'pending', 'private'),
@@ -295,7 +295,7 @@ class WP_AI_Inventory {
                 }
             }
 
-            $seo_meta       = $this->extract_seo_meta($post->ID);
+            $seo_meta       = $this->extract_seo_meta($post->ID, $active_provider);
             $content_struct = $this->extract_content_structure($post->post_content);
             $word_count     = $this->calculate_word_count($post->post_content);
             $title_len      = mb_strlen($post->post_title);
@@ -457,8 +457,9 @@ class WP_AI_Inventory {
     private function get_media_inventory() {
         $media_query = new WP_Query(array(
             'post_type'      => 'attachment',
+            'post_mime_type' => 'image',
             'post_status'    => 'inherit',
-            'posts_per_page' => 100,
+            'posts_per_page' => 200,
         ));
 
         $total_media       = $media_query->found_posts;
@@ -467,7 +468,9 @@ class WP_AI_Inventory {
 
         foreach ($media_query->posts as $media) {
             $alt_text = get_post_meta($media->ID, '_wp_attachment_image_alt', true);
-            if (empty($alt_text)) {
+            $is_empty_alt = empty($alt_text) || trim($alt_text) === '';
+
+            if ($is_empty_alt) {
                 $missing_alt_count++;
             }
 
@@ -485,17 +488,18 @@ class WP_AI_Inventory {
                 }
             }
 
-            if (count($sample_media) < 20) {
+            // Include missing alt text items as priority, and up to 100 sample items
+            if ($is_empty_alt || count($sample_media) < 100) {
                 $sample_media[] = array(
                     'id'                => $media->ID,
-                    'title'             => $media->post_title,
+                    'title'             => !empty($media->post_title) ? $media->post_title : 'Attachment #' . $media->ID,
                     'url'               => $url ? $url : '',
                     'mime_type'         => $mime ? $mime : '',
                     'filesize'          => $filesize,
                     'width'             => isset($meta_data['width']) ? $meta_data['width'] : null,
                     'height'            => isset($meta_data['height']) ? $meta_data['height'] : null,
                     'alt_text'          => $alt_text ? $alt_text : '',
-                    'has_alt'           => !empty($alt_text),
+                    'has_alt'           => !$is_empty_alt,
                     'parent_post_id'    => $media->post_parent,
                     'parent_post_title' => $parent_title,
                     'caption'           => $media->post_excerpt,
@@ -767,54 +771,88 @@ class WP_AI_Inventory {
     /**
      * Extract SEO meta tags, title, canonical, OpenGraph, Twitter, and indexability flags
      */
-    private function extract_seo_meta($post_id) {
-        $meta_desc = get_post_meta($post_id, '_yoast_wpseo_metadesc', true);
-        $focus_kw  = get_post_meta($post_id, '_yoast_wpseo_focuskw', true);
-        $seo_title = get_post_meta($post_id, '_yoast_wpseo_title', true);
-        $canonical = get_post_meta($post_id, '_yoast_wpseo_canonical', true);
+    private function extract_seo_meta($post_id, $active_provider = 'None / Core') {
+        $meta_desc   = '';
+        $focus_kw    = '';
+        $seo_title   = '';
+        $canonical   = '';
+        $og_title    = '';
+        $og_desc     = '';
+        $og_img      = '';
+        $tw_title    = '';
+        $tw_desc     = '';
+        $tw_img      = '';
+        $noindex_val = '';
+        $nofollow_val= '';
 
-        $og_title = get_post_meta($post_id, '_yoast_wpseo_opengraph-title', true);
-        $og_desc  = get_post_meta($post_id, '_yoast_wpseo_opengraph-description', true);
-        $og_img   = get_post_meta($post_id, '_yoast_wpseo_opengraph-image', true);
+        switch ($active_provider) {
+            case 'Yoast SEO':
+                $meta_desc    = get_post_meta($post_id, '_yoast_wpseo_metadesc', true);
+                $focus_kw     = get_post_meta($post_id, '_yoast_wpseo_focuskw', true);
+                $seo_title    = get_post_meta($post_id, '_yoast_wpseo_title', true);
+                $canonical    = get_post_meta($post_id, '_yoast_wpseo_canonical', true);
+                $og_title     = get_post_meta($post_id, '_yoast_wpseo_opengraph-title', true);
+                $og_desc      = get_post_meta($post_id, '_yoast_wpseo_opengraph-description', true);
+                $og_img       = get_post_meta($post_id, '_yoast_wpseo_opengraph-image', true);
+                $tw_title     = get_post_meta($post_id, '_yoast_wpseo_twitter-title', true);
+                $tw_desc      = get_post_meta($post_id, '_yoast_wpseo_twitter-description', true);
+                $tw_img       = get_post_meta($post_id, '_yoast_wpseo_twitter-image', true);
+                $noindex_val  = get_post_meta($post_id, '_yoast_wpseo_meta-robots-noindex', true);
+                $nofollow_val = get_post_meta($post_id, '_yoast_wpseo_meta-robots-nofollow', true);
+                break;
 
-        $tw_title = get_post_meta($post_id, '_yoast_wpseo_twitter-title', true);
-        $tw_desc  = get_post_meta($post_id, '_yoast_wpseo_twitter-description', true);
-        $tw_img   = get_post_meta($post_id, '_yoast_wpseo_twitter-image', true);
+            case 'Rank Math':
+                $meta_desc    = get_post_meta($post_id, 'rank_math_description', true);
+                $focus_kw     = get_post_meta($post_id, 'rank_math_focus_keyword', true);
+                $seo_title    = get_post_meta($post_id, 'rank_math_title', true);
+                $canonical    = get_post_meta($post_id, 'rank_math_canonical', true);
+                $og_title     = get_post_meta($post_id, 'rank_math_facebook_title', true);
+                $og_desc      = get_post_meta($post_id, 'rank_math_facebook_description', true);
+                $og_img       = get_post_meta($post_id, 'rank_math_facebook_image', true);
+                $tw_title     = get_post_meta($post_id, 'rank_math_twitter_title', true);
+                $tw_desc      = get_post_meta($post_id, 'rank_math_twitter_description', true);
+                $tw_img       = get_post_meta($post_id, 'rank_math_twitter_image', true);
+                $robots_rm    = get_post_meta($post_id, 'rank_math_robots', true);
+                if (is_array($robots_rm)) {
+                    if (in_array('noindex', $robots_rm, true))  { $noindex_val = '1'; }
+                    if (in_array('nofollow', $robots_rm, true)) { $nofollow_val = '1'; }
+                }
+                break;
 
-        $noindex_val  = get_post_meta($post_id, '_yoast_wpseo_meta-robots-noindex', true);
-        $nofollow_val = get_post_meta($post_id, '_yoast_wpseo_meta-robots-nofollow', true);
+            case 'All in One SEO':
+                $meta_desc = get_post_meta($post_id, '_aioseo_description', true);
+                $seo_title = get_post_meta($post_id, '_aioseo_title', true);
+                $canonical = get_post_meta($post_id, '_aioseo_canonical_url', true);
+                break;
 
-        // Rank Math fallbacks
-        if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, 'rank_math_description', true); }
-        if (empty($focus_kw))  { $focus_kw  = get_post_meta($post_id, 'rank_math_focus_keyword', true); }
-        if (empty($seo_title)) { $seo_title = get_post_meta($post_id, 'rank_math_title', true); }
-        if (empty($canonical)) { $canonical = get_post_meta($post_id, 'rank_math_canonical', true); }
-        if (empty($og_title))  { $og_title  = get_post_meta($post_id, 'rank_math_facebook_title', true); }
-        if (empty($og_desc))   { $og_desc   = get_post_meta($post_id, 'rank_math_facebook_description', true); }
-        if (empty($og_img))    { $og_img    = get_post_meta($post_id, 'rank_math_facebook_image', true); }
-        if (empty($tw_title))  { $tw_title  = get_post_meta($post_id, 'rank_math_twitter_title', true); }
-        if (empty($tw_desc))   { $tw_desc   = get_post_meta($post_id, 'rank_math_twitter_description', true); }
-        if (empty($tw_img))    { $tw_img    = get_post_meta($post_id, 'rank_math_twitter_image', true); }
+            case 'SEOPress':
+                $meta_desc = get_post_meta($post_id, '_seopress_titles_desc', true);
+                $focus_kw  = get_post_meta($post_id, '_seopress_analysis_target_kw', true);
+                $seo_title = get_post_meta($post_id, '_seopress_titles_title', true);
+                $canonical = get_post_meta($post_id, '_seopress_robots_canonical', true);
+                break;
 
-        $robots_rm = get_post_meta($post_id, 'rank_math_robots', true);
-        if (is_array($robots_rm)) {
-            if (in_array('noindex', $robots_rm, true))  { $noindex_val = '1'; }
-            if (in_array('nofollow', $robots_rm, true)) { $nofollow_val = '1'; }
+            default:
+                // General fallback across providers if no specific provider is active
+                $meta_desc = get_post_meta($post_id, '_yoast_wpseo_metadesc', true);
+                $focus_kw  = get_post_meta($post_id, '_yoast_wpseo_focuskw', true);
+                $seo_title = get_post_meta($post_id, '_yoast_wpseo_title', true);
+                $canonical = get_post_meta($post_id, '_yoast_wpseo_canonical', true);
+
+                if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, 'rank_math_description', true); }
+                if (empty($focus_kw))  { $focus_kw  = get_post_meta($post_id, 'rank_math_focus_keyword', true); }
+                if (empty($seo_title)) { $seo_title = get_post_meta($post_id, 'rank_math_title', true); }
+                if (empty($canonical)) { $canonical = get_post_meta($post_id, 'rank_math_canonical', true); }
+
+                if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, '_aioseo_description', true); }
+                if (empty($seo_title)) { $seo_title = get_post_meta($post_id, '_aioseo_title', true); }
+
+                if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, '_seopress_titles_desc', true); }
+                if (empty($focus_kw))  { $focus_kw  = get_post_meta($post_id, '_seopress_analysis_target_kw', true); }
+
+                if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, '_meta_description', true); }
+                break;
         }
-
-        // AIOSEO fallbacks
-        if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, '_aioseo_description', true); }
-        if (empty($seo_title)) { $seo_title = get_post_meta($post_id, '_aioseo_title', true); }
-        if (empty($canonical)) { $canonical = get_post_meta($post_id, '_aioseo_canonical_url', true); }
-
-        // SEOPress fallbacks
-        if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, '_seopress_titles_desc', true); }
-        if (empty($focus_kw))  { $focus_kw  = get_post_meta($post_id, '_seopress_analysis_target_kw', true); }
-        if (empty($seo_title)) { $seo_title = get_post_meta($post_id, '_seopress_titles_title', true); }
-        if (empty($canonical)) { $canonical = get_post_meta($post_id, '_seopress_robots_canonical', true); }
-
-        // Core / Generic meta description fallback
-        if (empty($meta_desc)) { $meta_desc = get_post_meta($post_id, '_meta_description', true); }
 
         return array(
             'seo_title'           => $seo_title ? sanitize_text_field($seo_title) : '',

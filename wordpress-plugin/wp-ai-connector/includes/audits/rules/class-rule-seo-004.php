@@ -26,7 +26,10 @@ class WP_AI_Rule_SEO_004 extends WP_AI_Audit_Rule {
         );
 
         foreach ($entities as $entity) {
-            $title = isset($entity['title']) ? trim($entity['title']) : '';
+            $seo_title = isset($entity['seo_title']) ? trim($entity['seo_title']) : '';
+            $title     = !empty($seo_title) ? $seo_title : (isset($entity['title']) ? trim($entity['title']) : '');
+            $display_title = isset($entity['title']) && !empty($entity['title']) ? trim($entity['title']) : '(Untitled)';
+
             if (empty($title) && isset($entity['status']) && $entity['status'] === 'publish') {
                 $findings[] = new WP_AI_Audit_Finding(array(
                     'id'             => 'finding_seo_004_' . $entity['id'],
@@ -35,12 +38,12 @@ class WP_AI_Rule_SEO_004 extends WP_AI_Audit_Rule {
                     'severity'       => $this->get_severity(),
                     'entity_id'      => $entity['id'],
                     'entity_type'    => isset($entity['categories']) ? 'post' : 'page',
-                    'entity_title'   => '(Untitled)',
+                    'entity_title'   => $display_title,
                     'entity_url'     => isset($entity['slug']) ? '/' . $entity['slug'] : '',
-                    'field_name'     => 'post_title',
-                    'current_value'  => '(empty title)',
+                    'field_name'     => 'seo_title',
+                    'current_value'  => '(empty title tag)',
                     'expected_value' => 'Descriptive title string (30-60 characters)',
-                    'evidence'       => 'Published entity (ID: ' . $entity['id'] . ') has an empty title tag.',
+                    'evidence'       => 'Published entity "' . $display_title . '" (ID: ' . $entity['id'] . ') has an empty SEO title tag.',
                     'rationale'      => $this->get_rationale(),
                     'remediation'    => $this->get_remediation(),
                     'auto_fixable'   => true,

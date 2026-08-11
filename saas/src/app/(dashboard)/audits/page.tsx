@@ -66,6 +66,45 @@ interface IssueGroup {
   issues: any[];
 }
 
+import { QuickFixDrawer, QuickFixIssue } from "../../../components/audits/QuickFixDrawer";
+import { VersionHistoryModal } from "../../../components/proposals/VersionHistoryModal";
+
+export function extractTargetEntityId(issue: any): number {
+  if (!issue) return 1;
+
+  let payload = issue.actionPayload;
+  if (typeof payload === "string") {
+    try { payload = JSON.parse(payload); } catch (e) {}
+  }
+  if (payload && (payload.entity_id || payload.entityId)) {
+    const num = parseInt(payload.entity_id || payload.entityId, 10);
+    if (!isNaN(num) && num > 0) return num;
+  }
+
+  if (issue.entity_id || issue.entityId) {
+    const num = parseInt(issue.entity_id || issue.entityId, 10);
+    if (!isNaN(num) && num > 0) return num;
+  }
+
+  if (issue.id && typeof issue.id === "string") {
+    const matches = issue.id.match(/\d+$/);
+    if (matches) {
+      const num = parseInt(matches[0], 10);
+      if (!isNaN(num) && num > 0) return num;
+    }
+  }
+
+  if (issue.affectedUrl && typeof issue.affectedUrl === "string") {
+    const urlMatches = issue.affectedUrl.match(/[?&](?:p|post|attachment_id)=(\d+)/);
+    if (urlMatches) {
+      const num = parseInt(urlMatches[1], 10);
+      if (!isNaN(num) && num > 0) return num;
+    }
+  }
+
+  return 1;
+}
+
 export default function AuditsPage() {
   const [audits, setAudits] = React.useState<any[]>([]);
   const [selectedAuditIndex, setSelectedAuditIndex] = React.useState<number>(0);
@@ -76,8 +115,13 @@ export default function AuditsPage() {
   // History Modal State
   const [showHistoryModal, setShowHistoryModal] = React.useState(false);
 
-  // Details Preview Modal State (Phase 3 AI / Technical Inspection)
+  // Details Preview Modal State
   const [activePreviewEntity, setActivePreviewEntity] = React.useState<any | null>(null);
+
+  // Phase 3 Quick Fix Drawer & Version History Modal States
+  const [quickFixDrawerOpen, setQuickFixDrawerOpen] = React.useState(false);
+  const [selectedQuickFixIssue, setSelectedQuickFixIssue] = React.useState<QuickFixIssue | null>(null);
+  const [versionHistoryModalOpen, setVersionHistoryModalOpen] = React.useState(false);
 
   // Expanded Issue Group State (Key: rule_id)
   const [expandedRules, setExpandedRules] = React.useState<Record<string, boolean>>({});
@@ -344,6 +388,34 @@ export default function AuditsPage() {
     }
   };
 
+  const handleQuickFixSuccess = () => {
+    if (selectedQuickFixIssue && audits.length > 0) {
+      setAudits((prevAudits) => {
+        const copy = JSON.parse(JSON.stringify(prevAudits));
+        const activeAudit = copy[selectedAuditIndex] || copy[0];
+        if (activeAudit && Array.isArray(activeAudit.issues)) {
+          activeAudit.issues = activeAudit.issues.filter((iss: any) => {
+            let payload = iss.actionPayload;
+            if (typeof payload === "string") {
+              try { payload = JSON.parse(payload); } catch (e) {}
+            }
+            const rId = payload?.rule_id || (iss.title && iss.title.includes(":") ? iss.title.split(":")[0] : "");
+            const eId = extractTargetEntityId(iss);
+            const targetId = selectedQuickFixIssue.entityId;
+
+            const matchesRule = rId === selectedQuickFixIssue.rule_id;
+            const matchesEntity = String(eId) === String(targetId) || (iss.affectedUrl && selectedQuickFixIssue.affectedUrl && iss.affectedUrl === selectedQuickFixIssue.affectedUrl);
+
+            return !(matchesRule && matchesEntity);
+          });
+          activeAudit.totalIssuesCount = activeAudit.issues.length;
+        }
+        return copy;
+      });
+    }
+    fetchAudits();
+  };
+
   const lastScanDateStr = primaryAudit.auditDate
     ? new Date(primaryAudit.auditDate).toLocaleString()
     : "Latest Scan";
@@ -365,6 +437,15 @@ export default function AuditsPage() {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
+          <Button
+            onClick={() => setVersionHistoryModalOpen(true)}
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs font-bold border-purple-500/30 text-purple-300 bg-purple-500/10 hover:bg-purple-500/20"
+          >
+            <History className="h-4 w-4 text-purple-400" /> Version Log & Rollback
+          </Button>
+
           {audits.length > 1 && (
             <Button
               onClick={() => setShowHistoryModal(true)}
@@ -372,7 +453,7 @@ export default function AuditsPage() {
               size="sm"
               className="gap-1.5 text-xs font-semibold border-slate-700 hover:bg-muted"
             >
-              <History className="h-4 w-4 text-purple-400" /> View Full History ({audits.length})
+              <History className="h-4 w-4 text-sky-400" /> Audit Scans ({audits.length})
             </Button>
           )}
 
@@ -678,90 +759,117 @@ export default function AuditsPage() {
             const categoryName = getCategoryName(group.category);
 
             return (
-              <div
-                key={group.rule_id}
-                id={`issue_group_${group.rule_id}`}
-                className="rounded-xl border border-border bg-card overflow-hidden transition-all shadow-sm"
-              >
-                {/* Collapsed Issue Group Header Card */}
-                <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/30 transition-colors">
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <Badge
-                      variant={group.severity === "critical" ? "destructive" : group.severity === "warning" ? "warning" : "outline"}
-                      className="text-[10px] uppercase font-bold px-2 py-0.5"
-                    >
-                      {group.severity}
-                    </Badge>
+              (() => {
+                const displayIssues = selectedEntityType === "all"
+                  ? group.issues
+                  : group.issues.filter(
+                      (iss: any) => normalizeEntityType(iss.entity_type || iss.actionPayload?.entity_type) === selectedEntityType
+                    );
 
-                    <Badge variant="outline" className="font-mono text-[10px] bg-slate-900 border-slate-700 text-sky-400 px-2 py-0.5">
-                      {group.rule_id}
-                    </Badge>
+                if (displayIssues.length === 0) return null;
 
-                    <Badge variant="secondary" className="text-[10px] text-muted-foreground font-medium px-2 py-0.5">
-                      {categoryName}
-                    </Badge>
+                return (
+                  <div
+                    key={group.rule_id}
+                    id={`issue_group_${group.rule_id}`}
+                    className="rounded-xl border border-border bg-card overflow-hidden transition-all shadow-sm"
+                  >
+                    {/* Collapsed Issue Group Header Card */}
+                    <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <Badge
+                          variant={group.severity === "critical" ? "destructive" : group.severity === "warning" ? "warning" : "outline"}
+                          className="text-[10px] uppercase font-bold px-2 py-0.5"
+                        >
+                          {group.severity}
+                        </Badge>
 
-                    <span className="font-bold text-xs text-foreground tracking-tight ml-1">
-                      {group.title}
-                    </span>
-                  </div>
+                        <Badge variant="outline" className="font-mono text-[10px] bg-slate-900 border-slate-700 text-sky-400 px-2 py-0.5">
+                          {group.rule_id}
+                        </Badge>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                    <span className="text-[11px] font-bold text-primary font-mono bg-primary/10 px-2.5 py-0.5 rounded-md border border-primary/20">
-                      {group.issues.length} {group.issues.length === 1 ? "affected item" : "affected items"}
-                    </span>
+                        <Badge variant="secondary" className="text-[10px] text-muted-foreground font-medium px-2 py-0.5">
+                          {categoryName}
+                        </Badge>
 
-                    <Link href={`/ai-chat?issueId=${firstIssueId}`}>
-                      <Button size="sm" className="h-7 text-[11px] font-semibold gap-1.5 px-3 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm">
-                        <Zap className="h-3 w-3" /> Quick Fix
-                      </Button>
-                    </Link>
-
-                    <button
-                      type="button"
-                      onClick={() => toggleRuleExpand(group.rule_id)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                      aria-label="Toggle affected pages"
-                    >
-                      {isRuleExpanded ? (
-                        <ChevronDown className="h-4 w-4 text-primary" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded State: Single Remediation Block & Affected Pages List */}
-                {isRuleExpanded && (
-                  <div className="p-4 border-t border-border/60 bg-muted/20 space-y-4">
-                    {/* SINGLE REMEDIATION & RATIONALE BLOCK FOR THIS ISSUE GROUP */}
-                    <div className="p-3.5 rounded-xl bg-card border border-border text-xs space-y-2">
-                      <div className="text-[11px] text-slate-300 flex items-start gap-2">
-                        <InfoIcon className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
-                        <div>
-                          <strong className="text-sky-400 block mb-0.5">Why it matters:</strong>
-                          <span>{group.rationale}</span>
-                        </div>
+                        <span className="font-bold text-xs text-foreground tracking-tight ml-1">
+                          {group.title}
+                        </span>
                       </div>
 
-                      <div className="text-[11px] text-emerald-300 flex items-start gap-2 font-medium pt-1.5 border-t border-border/50">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
-                        <div>
-                          <strong className="text-emerald-400 block mb-0.5">Recommended Remediation:</strong>
-                          <span>{group.remediation}</span>
-                        </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                        <span className="text-[11px] font-bold text-primary font-mono bg-primary/10 px-2.5 py-0.5 rounded-md border border-primary/20">
+                          {displayIssues.length} {displayIssues.length === 1 ? "affected item" : "affected items"}
+                        </span>
+
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const firstIss = displayIssues[0] || group.issues[0];
+                            const targetEntityId = extractTargetEntityId(firstIss);
+                            setSelectedQuickFixIssue({
+                              rule_id: group.rule_id,
+                              category: group.category,
+                              severity: group.severity,
+                              title: group.title,
+                              description: group.title,
+                              affectedUrl: firstIss?.affectedUrl,
+                              pageTitle: firstIss?.pageTitle,
+                              currentValue: firstIss?.current_value || firstIss?.currentValue || firstIss?.actionPayload?.current_value,
+                              entityId: targetEntityId,
+                            });
+                            setQuickFixDrawerOpen(true);
+                          }}
+                          className="h-7 text-[11px] font-semibold gap-1.5 px-3 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                        >
+                          <Zap className="h-3 w-3" /> Quick Fix
+                        </Button>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleRuleExpand(group.rule_id)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                          aria-label="Toggle affected pages"
+                        >
+                          {isRuleExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
                     </div>
 
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 pt-1">
-                      <FileText className="h-3.5 w-3.5 text-sky-400" />
-                      <span>Affected Pages & Entities ({group.issues.length})</span>
-                    </div>
+                    {/* Expanded State: Single Remediation Block & Affected Pages List */}
+                    {isRuleExpanded && (
+                      <div className="p-4 border-t border-border/60 bg-muted/20 space-y-4">
+                        {/* SINGLE REMEDIATION & RATIONALE BLOCK FOR THIS ISSUE GROUP */}
+                        <div className="p-3.5 rounded-xl bg-card border border-border text-xs space-y-2">
+                          <div className="text-[11px] text-slate-300 flex items-start gap-2">
+                            <InfoIcon className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
+                            <div>
+                              <strong className="text-sky-400 block mb-0.5">Why it matters:</strong>
+                              <span>{group.rationale}</span>
+                            </div>
+                          </div>
 
-                    {/* Affected Entity Rows */}
-                    <div className="space-y-3">
-                      {group.issues.map((issue: any) => {
+                          <div className="text-[11px] text-emerald-300 flex items-start gap-2 font-medium pt-1.5 border-t border-border/50">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+                            <div>
+                              <strong className="text-emerald-400 block mb-0.5">Recommended Remediation:</strong>
+                              <span>{group.remediation}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 pt-1">
+                          <FileText className="h-3.5 w-3.5 text-sky-400" />
+                          <span>Affected Pages & Entities ({displayIssues.length})</span>
+                        </div>
+
+                        {/* Affected Entity Rows */}
+                        <div className="space-y-3">
+                          {displayIssues.map((issue: any) => {
                         const payload = issue.actionPayload || {};
                         const EntityIcon = getEntityIcon(issue.entity_type || payload.entity_type);
                         const targetUrl = issue.affectedUrl || issue.entity_url || payload.entity_url || "/";
@@ -840,15 +948,27 @@ export default function AuditsPage() {
 
                               <div className="flex items-center gap-2">
                                 {/* Resolve with AI Placeholder (Phase 3 Ready) */}
+                                {/* Resolve with AI (Phase 3 Active Remediation) */}
                                 <Button
                                   size="sm"
-                                  disabled
-                                  variant="outline"
-                                  className="h-7 text-[11px] font-bold gap-1 px-2.5 border-purple-500/30 text-purple-300 bg-purple-500/10 opacity-80 cursor-not-allowed"
-                                  title="AI Auto-Fix will be enabled in Phase 3"
+                                  onClick={() => {
+                                    const targetEntityId = extractTargetEntityId(issue);
+                                    setSelectedQuickFixIssue({
+                                      rule_id: group.rule_id,
+                                      category: group.category,
+                                      severity: group.severity,
+                                      title: group.title,
+                                      description: group.title,
+                                      affectedUrl: issue.affectedUrl,
+                                      pageTitle: issue.pageTitle,
+                                      currentValue,
+                                      entityId: targetEntityId,
+                                    });
+                                    setQuickFixDrawerOpen(true);
+                                  }}
+                                  className="h-7 text-[11px] font-bold gap-1 px-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-sm"
                                 >
-                                  <Wand2 className="h-3 w-3 text-purple-400" /> Resolve with AI
-                                  <Badge variant="outline" className="text-[8px] font-mono border-purple-500/40 text-purple-300 ml-1">Phase 3</Badge>
+                                  <Wand2 className="h-3 w-3 text-purple-200" /> Quick Fix
                                 </Button>
 
                                 {/* Manual Fix via Copilot Chat */}
@@ -876,8 +996,10 @@ export default function AuditsPage() {
                 )}
               </div>
             );
-          })
-        )}
+          })()
+        );
+      })
+    )}
       </div>
 
       {/* Passed Compliance Checks Section */}
@@ -1006,6 +1128,21 @@ export default function AuditsPage() {
           </div>
         )}
       </Dialog>
+      {/* Phase 3 Quick Fix Right Drawer */}
+      <QuickFixDrawer
+        isOpen={quickFixDrawerOpen}
+        onClose={() => setQuickFixDrawerOpen(false)}
+        siteId={primaryAudit?.siteId}
+        issue={selectedQuickFixIssue}
+        onSuccess={handleQuickFixSuccess}
+      />
+
+      {/* Phase 3 Version History & Rollback Modal */}
+      <VersionHistoryModal
+        isOpen={versionHistoryModalOpen}
+        onClose={() => setVersionHistoryModalOpen(false)}
+        siteId={primaryAudit?.siteId}
+      />
     </div>
   );
 }

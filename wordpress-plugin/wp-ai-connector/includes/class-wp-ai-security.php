@@ -13,16 +13,30 @@ class WP_AI_Security {
     public static function verify_request(WP_REST_Request $request) {
         $received_signature = $request->get_header('X-WP-AI-Signature');
         $received_timestamp = $request->get_header('X-WP-AI-Timestamp');
+        $api_key_header     = $request->get_header('X-WP-AI-API-Key');
 
+        if (empty($api_key_header)) {
+            $auth_header = $request->get_header('Authorization');
+            if (!empty($auth_header) && strpos($auth_header, 'Bearer ') === 0) {
+                $api_key_header = substr($auth_header, 7);
+            }
+        }
+
+        // 1. API Key Fallback Authentication
+        $stored_api_key = get_option('wp_ai_api_key');
+        if (!empty($stored_api_key) && !empty($api_key_header) && hash_equals($stored_api_key, $api_key_header)) {
+            return true;
+        }
+
+        // 2. HMAC-SHA256 Timestamp Verification
         if (empty($received_signature) || empty($received_timestamp)) {
             return new WP_Error(
                 'rest_forbidden_security_headers_missing',
-                'Security headers X-WP-AI-Signature and X-WP-AI-Timestamp are required.',
+                'Security authentication headers (API Key or HMAC Signature/Timestamp) are required.',
                 array('status' => 401)
             );
         }
 
-        // Timestamp Freshness Check (300 seconds window)
         $current_time = time();
         $timestamp = intval($received_timestamp);
 
@@ -34,7 +48,6 @@ class WP_AI_Security {
             );
         }
 
-        // HMAC-SHA256 Verification
         $hmac_secret = get_option('wp_ai_hmac_secret');
         if (empty($hmac_secret)) {
             return new WP_Error(
@@ -48,7 +61,6 @@ class WP_AI_Security {
         $payload_to_sign = $timestamp . '.' . $raw_body;
         $expected_signature = hash_hmac('sha256', $payload_to_sign, $hmac_secret);
 
-        // Timing-attack Safe String Comparison
         if (!hash_equals($expected_signature, $received_signature)) {
             return new WP_Error(
                 'rest_forbidden_invalid_signature',

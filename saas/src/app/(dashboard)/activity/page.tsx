@@ -38,13 +38,34 @@ export default function ActivityPage() {
     fetchActivities();
   }, []);
 
-  const handleRollback = () => {
+  const handleRollback = async () => {
+    if (!selectedItem) return;
     setIsRollingBack(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/proposals/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionLogId: selectedItem.id, siteId: selectedItem.siteId }),
+      });
+
+      if (res.ok) {
+        setSelectedItem(null);
+        setRollbackSuccess(true);
+        // Refresh activity list
+        const refreshed = await fetch("/api/activity");
+        if (refreshed.ok) {
+          const data = await refreshed.json();
+          if (data?.activities) setActivities(data.activities);
+        }
+      } else {
+        const err = await res.json();
+        alert(err.error || "Rollback failed.");
+      }
+    } catch (err) {
+      console.error("Rollback error:", err);
+    } finally {
       setIsRollingBack(false);
-      setSelectedItem(null);
-      setRollbackSuccess(true);
-    }, 1400);
+    }
   };
 
   return (
