@@ -54,6 +54,8 @@ export async function POST(req: Request) {
       proposedValuesPayload.value = proposedValue;
     } else if (actionType === "update_post_title") {
       proposedValuesPayload.post_title = proposedValue;
+    } else if (actionType === "update_post_content") {
+      proposedValuesPayload.post_content = proposedValue;
     } else if (actionType === "update_post_excerpt") {
       proposedValuesPayload.post_excerpt = proposedValue;
     } else {

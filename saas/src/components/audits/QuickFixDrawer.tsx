@@ -76,6 +76,7 @@ export function QuickFixDrawer({ isOpen, onClose, siteId, issue, onSuccess }: Qu
           pageTitle: targetIssue.pageTitle,
           entityId: targetIssue.entityId || 1,
           currentValue: targetIssue.currentValue,
+          siteId: siteId,
         }),
       });
 

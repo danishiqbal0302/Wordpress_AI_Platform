@@ -239,6 +239,33 @@ export default function AuditsPage() {
     return "page";
   };
 
+  const RULE_TITLES: Record<string, string> = {
+    CONTENT_001: "Thin Body Content (< 300 Words)",
+    CONTENT_002: "Excessive Word Count Density",
+    CONTENT_003: "Missing H1 Heading Element",
+    CONTENT_004: "Multiple H1 Heading Tags",
+    CONTENT_005: "Heading Hierarchy Skipping",
+    CONTENT_006: "Duplicate Post Title",
+    CONTENT_007: "Suboptimal Post Title Length",
+    CONTENT_008: "Heading First Content Layout",
+    CONTENT_009: "Unstructured Long Content",
+    CONTENT_010: "Subheading Density & Distribution",
+    SEO_001: "Missing Meta Description",
+    SEO_002: "Suboptimal SEO Title Length",
+    SEO_003: "Missing Focus Keyword",
+    SEO_004: "Missing SEO Title Tag",
+    SEO_005: "Duplicate SEO Title Tag",
+    SEO_006: "Duplicate Meta Description",
+    SEO_007: "Suboptimal Meta Description Length",
+    SEO_008: "Robots Noindex / Nofollow Restriction",
+    SEO_009: "Missing Open Graph Metadata",
+    SEO_010: "Missing Twitter Card Metadata",
+    MEDIA_001: "Missing Image Alt Text",
+    MEDIA_002: "Unoptimized Image Asset File Size",
+    TECH_001: "Broken Internal Link Destination",
+    TECH_002: "Orphaned Content Page",
+  };
+
   // Group findings into Issue Groups (Single Remediation & Rationale per group)
   const issueGroupsMap = React.useMemo(() => {
     const map: Record<string, IssueGroup> = {};
@@ -250,6 +277,10 @@ export default function AuditsPage() {
 
       if (ruleTitle.includes(":") && ruleTitle.startsWith(ruleId)) {
         ruleTitle = ruleTitle.split(":").slice(1).join(":").trim();
+      }
+
+      if (RULE_TITLES[ruleId] && (!ruleTitle || ruleTitle === "post_content" || ruleTitle === "_wp_attachment_image_alt" || ruleTitle === "seo_title" || ruleTitle === "meta_description" || ruleTitle === "focus_keyword" || ruleTitle === "og_metadata" || ruleTitle === "twitter_metadata")) {
+        ruleTitle = RULE_TITLES[ruleId];
       }
 
       const category = normalizeCategory(issue.category || payload.category, ruleId);

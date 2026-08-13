@@ -218,6 +218,8 @@ class WP_AI_Inventory {
                 'fields'      => 'ids',
             ));
 
+            $editor_type = $this->detect_editor_type($page->ID, $page->post_content);
+
             $page_item = array_merge(array(
                 'id'                => $page->ID,
                 'title'             => $page->post_title,
@@ -230,6 +232,8 @@ class WP_AI_Inventory {
                 'children'          => array_values($child_pages),
                 'word_count'        => $word_count,
                 'title_length'      => $title_len,
+                'editor_type'       => $editor_type,
+                'raw_content'       => $page->post_content,
                 'content_structure' => $content_struct,
             ), $seo_meta);
 
@@ -252,6 +256,21 @@ class WP_AI_Inventory {
             'pages_raw'       => $pages_raw,
             'pages_hierarchy' => $pages_hierarchy,
         );
+    }
+
+    /**
+     * Helper to detect editor type for post/page
+     */
+    private function detect_editor_type($post_id, $post_content) {
+        $edit_mode = get_post_meta($post_id, '_elementor_edit_mode', true);
+        $elem_data = get_post_meta($post_id, '_elementor_data', true);
+        if ($edit_mode === 'builder' || (!empty($elem_data) && is_string($elem_data) && strlen($elem_data) > 5)) {
+            return 'elementor';
+        }
+        if (function_exists('has_blocks') && has_blocks($post_content)) {
+            return 'gutenberg';
+        }
+        return 'classic';
     }
 
     /**
@@ -644,25 +663,18 @@ class WP_AI_Inventory {
         $heading_levels  = array();
         $heading_list    = array();
         $paragraph_count = 0;
-        $h1_count        = 0;
 
         if ($has_blocks_flag && function_exists('parse_blocks')) {
             $blocks = parse_blocks($post_content);
             foreach ($blocks as $b) {
-                if (!empty($b['blockName'])) {
-                    if ($b['blockName'] === 'core/heading') {
-                        $lvl = isset($b['attrs']['level']) ? intval($b['attrs']['level']) : 2;
-                        $heading_levels[] = 'H' . $lvl;
-                        $heading_list[]   = array('level' => $lvl, 'text' => wp_strip_all_tags(isset($b['innerHTML']) ? $b['innerHTML'] : ''));
-                        if ($lvl === 1) { $h1_count++; }
-                    } elseif ($b['blockName'] === 'core/paragraph') {
-                        $paragraph_count++;
-                    }
+                if (!empty($b['blockName']) && $b['blockName'] === 'core/paragraph') {
+                    $paragraph_count++;
                 }
             }
         }
 
-        // Classic Editor / HTML fallback & regex inspection
+        // Extract all HTML headings (H1-H6)
+        $h1_count = 0;
         preg_match_all('/<h([1-6])[^>]*>(.*?)<\/h\1>/is', $post_content, $html_headings, PREG_SET_ORDER);
         if (!empty($html_headings)) {
             foreach ($html_headings as $match) {
@@ -673,7 +685,7 @@ class WP_AI_Inventory {
                     $heading_levels[] = $h_tag;
                 }
                 $heading_list[] = array('level' => $lvl, 'text' => $txt);
-                if ($lvl === 1 && !$has_blocks_flag) {
+                if ($lvl === 1) {
                     $h1_count++;
                 }
             }
