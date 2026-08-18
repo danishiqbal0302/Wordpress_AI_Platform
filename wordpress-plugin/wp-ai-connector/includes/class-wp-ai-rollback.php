@@ -30,35 +30,33 @@ class WP_AI_Rollback {
         if (!$snapshot_data || !is_array($snapshot_data)) {
             return new WP_Error(
                 'rest_snapshot_not_found',
-                'Requested rollback snapshot record not found or expired.',
+                'Requested rollback snapshot record not found or expired on WordPress site.',
                 array('status' => 404)
             );
         }
 
-        // Restore Exact Previous Post Fields
+        // 1. Restore Exact Previous Post Attributes
         $rollback_post_args = array(
             'ID'           => $post_id,
-            'post_title'   => $snapshot_data['post_title'],
-            'post_content' => $snapshot_data['post_content'],
-            'post_excerpt' => $snapshot_data['post_excerpt'],
+            'post_title'   => isset($snapshot_data['post_title']) ? $snapshot_data['post_title'] : get_the_title($post_id),
+            'post_content' => isset($snapshot_data['post_content']) ? $snapshot_data['post_content'] : get_post_field('post_content', $post_id),
+            'post_excerpt' => isset($snapshot_data['post_excerpt']) ? $snapshot_data['post_excerpt'] : get_post_field('post_excerpt', $post_id),
         );
         wp_update_post($rollback_post_args);
 
-        // Restore Exact Previous Meta Fields
+        // 2. Restore Exact Previous Meta Fields (Yoast, Rank Math, Core Meta)
         if (isset($snapshot_data['post_meta']) && is_array($snapshot_data['post_meta'])) {
             foreach ($snapshot_data['post_meta'] as $meta_key => $meta_values) {
-                delete_post_meta($post_id, $meta_key);
-                foreach ((array)$meta_values as $val) {
-                    add_post_meta($post_id, $meta_key, maybe_unserialize($val));
+                if (is_array($meta_values) && count($meta_values) > 0) {
+                    $single_val = maybe_unserialize($meta_values[0]);
+                    update_post_meta($post_id, $meta_key, $single_val);
+                } else {
+                    delete_post_meta($post_id, $meta_key);
                 }
             }
         }
 
-        // Cache Invalidation for Target Entity
-        clean_post_cache($post_id);
-        wp_cache_delete($post_id, 'post_meta');
-
-        // Restore Parent Post Content & Elementor Meta if present in snapshot
+        // 3. Restore Parent Posts & Elementor Meta if present
         if (isset($snapshot_data['parent_posts']) && is_array($snapshot_data['parent_posts'])) {
             foreach ($snapshot_data['parent_posts'] as $parent_item) {
                 if (isset($parent_item['post_id']) && $parent_item['post_id'] > 0) {
@@ -77,12 +75,18 @@ class WP_AI_Rollback {
                         }
                     }
                     clean_post_cache($parent_id);
-                    wp_cache_delete($parent_id, 'post_meta');
                 }
             }
         }
 
-        // Post-Restoration Verification Check
+        // 4. Invalidate Cache Cleanly
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'posts');
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
+
+        // 5. Post-Restoration Verification Check
         $restored_post = get_post($post_id);
         if (!$restored_post) {
             return new WP_Error(
@@ -99,9 +103,9 @@ class WP_AI_Rollback {
         return rest_ensure_response(array(
             'rollback_status'    => 'SUCCESS',
             'post_id'            => $post_id,
-            'snapshot_id'        => $snapshot_id,
+            'restored_title'     => $restored_post->post_title,
             'restored_checksum'  => $restored_checksum,
-            'timestamp'          => time(),
+            'executedAt'         => time(),
         ));
     }
 }

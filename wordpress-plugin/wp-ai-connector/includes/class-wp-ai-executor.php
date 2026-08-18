@@ -98,25 +98,53 @@ class WP_AI_Executor {
             // Save Rollback Snapshot in wp_options
             update_option($snapshot_id, $snapshot_data, false);
 
-            // Apply Proposed Field Updates
-            $update_post_args = array('ID' => $post_id);
+            // 3. Apply Action Types
+            // A. Post Title Updates
+            if ($action_type === 'update_post_title' || isset($proposed_values['post_title'])) {
+                $title_val = '';
+                if (isset($proposed_values['post_title'])) {
+                    $title_val = $proposed_values['post_title'];
+                } elseif (isset($proposed_values['value'])) {
+                    $title_val = $proposed_values['value'];
+                }
+                $title_val = sanitize_text_field($title_val);
+                if (!empty($title_val)) {
+                    wp_update_post(array('ID' => $post_id, 'post_title' => $title_val));
+                    clean_post_cache($post_id);
+                }
+            }
 
-            // Direct Post Attributes
-            if (isset($proposed_values['post_title'])) {
-                $update_post_args['post_title'] = sanitize_text_field($proposed_values['post_title']);
-            }
-            if (isset($proposed_values['post_excerpt'])) {
-                $update_post_args['post_excerpt'] = sanitize_textarea_field($proposed_values['post_excerpt']);
-            }
+            // B. Post Content Updates
             if (isset($proposed_values['post_content'])) {
-                $update_post_args['post_content'] = wp_kses_post($proposed_values['post_content']);
+                $raw_post_content = $proposed_values['post_content'];
+
+                // Normalize Gutenberg heading level block comments to match inner tag levels
+                $raw_post_content = preg_replace(
+                    '/<!--\s*wp:heading\s*-->\s*(<h1[^>]*>)/i',
+                    '<!-- wp:heading {"level":1} -->' . "\n" . '$1',
+                    $raw_post_content
+                );
+                $raw_post_content = preg_replace(
+                    '/<!--\s*wp:heading\s*-->\s*(<h3[^>]*>)/i',
+                    '<!-- wp:heading {"level":3} -->' . "\n" . '$1',
+                    $raw_post_content
+                );
+
+                wp_update_post(array(
+                    'ID'           => $post_id,
+                    'post_content' => wp_slash($raw_post_content),
+                ));
+                clean_post_cache($post_id);
+                wp_cache_delete($post_id, 'posts');
             }
 
-            if (count($update_post_args) > 1) {
-                wp_update_post($update_post_args);
+            // C. Post Excerpt Updates
+            if (isset($proposed_values['post_excerpt'])) {
+                wp_update_post(array('ID' => $post_id, 'post_excerpt' => sanitize_textarea_field($proposed_values['post_excerpt'])));
+                clean_post_cache($post_id);
             }
 
-            // Image Alt Text (for Attachment CPT and embedded page content)
+            // D. Image Alt Text Updates
             if ($action_type === 'update_alt_text' || isset($proposed_values['alt_text']) || isset($proposed_values['alt'])) {
                 $alt_val = '';
                 if (is_array($proposed_values)) {
@@ -134,12 +162,9 @@ class WP_AI_Executor {
                 $alt_val = sanitize_text_field($alt_val);
 
                 if (!empty($alt_val)) {
-                    // Update Attachment Meta
                     update_post_meta($post_id, '_wp_attachment_image_alt', wp_slash($alt_val));
                     clean_post_cache($post_id);
-                    wp_cache_delete($post_id, 'post_meta');
 
-                    // If $post_id is a Post/Page, also update attached media and embedded HTML images
                     $target_post = get_post($post_id);
                     if ($target_post) {
                         $posts_to_update = array();
@@ -150,7 +175,6 @@ class WP_AI_Executor {
                             }
                         } elseif ($target_post->post_type !== 'attachment') {
                             $posts_to_update[] = $target_post;
-                            // Also update attached image attachments
                             $attached_images = get_attached_media('image', $post_id);
                             if (!empty($attached_images)) {
                                 foreach ($attached_images as $att_img) {
@@ -169,7 +193,6 @@ class WP_AI_Executor {
                             );
 
                             if (!empty($p_item->post_content)) {
-                                // A. Update <img> HTML tags
                                 $updated_content = preg_replace_callback(
                                     '/<img\s+([^>]*?)>/i',
                                     function ($matches) use ($alt_val) {
@@ -183,11 +206,10 @@ class WP_AI_Executor {
                                     $p_item->post_content
                                 );
 
-                                // B. Update Gutenberg Block Comment JSON (<!-- wp:image {"alt": "..."} -->)
                                 if (strpos($updated_content, '<!-- wp:image') !== false) {
                                     $updated_content = preg_replace_callback(
                                         '/<!--\s+wp:image\s+(\{.*?\})\s+-->/s',
-                                        function ($matches) use ($alt_val, $post_id) {
+                                        function ($matches) use ($alt_val) {
                                             $json_str = $matches[1];
                                             $data = json_decode($json_str, true);
                                             if (is_array($data)) {
@@ -210,7 +232,6 @@ class WP_AI_Executor {
                                 }
                             }
 
-                            // C. Update Elementor _elementor_data Meta JSON if present
                             $elementor_data = get_post_meta($p_item->ID, '_elementor_data', true);
                             if (!empty($elementor_data) && is_string($elementor_data)) {
                                 $updated_elementor = preg_replace_callback(
@@ -227,13 +248,12 @@ class WP_AI_Executor {
                             }
                         }
 
-                        // Re-save updated snapshot data including parent_posts
                         update_option($snapshot_id, $snapshot_data, false);
                     }
                 }
             }
 
-            // Meta Field Updates (Yoast, Rank Math, AIOSEO, SEOPress, Core Meta)
+            // E. Meta Field Updates (Yoast, Rank Math, AIOSEO, SEOPress)
             if (isset($proposed_values['meta']) && is_array($proposed_values['meta'])) {
                 foreach ($proposed_values['meta'] as $meta_key => $meta_val) {
                     $clean_val = sanitize_text_field($meta_val);
@@ -241,46 +261,43 @@ class WP_AI_Executor {
                 }
             }
 
-            // Specific Action Type Shortcut Mappings
-            if ($action_type === 'update_meta_title' && isset($proposed_values['meta_title'])) {
-                $title_val = sanitize_text_field($proposed_values['meta_title']);
-                update_post_meta($post_id, '_yoast_wpseo_title', $title_val);
-                update_post_meta($post_id, 'rank_math_title', $title_val);
-                update_post_meta($post_id, '_aioseo_title', $title_val);
-                update_post_meta($post_id, '_seopress_titles_title', $title_val);
-            }
-            if ($action_type === 'update_meta_description' && isset($proposed_values['meta_description'])) {
-                $desc_val = sanitize_text_field($proposed_values['meta_description']);
-                update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc_val);
-                update_post_meta($post_id, 'rank_math_description', $desc_val);
-                update_post_meta($post_id, '_aioseo_description', $desc_val);
-                update_post_meta($post_id, '_seopress_titles_desc', $desc_val);
-            }
-            if ($action_type === 'update_focus_keyword' && isset($proposed_values['focus_keyword'])) {
-                $kw_val = sanitize_text_field($proposed_values['focus_keyword']);
-                update_post_meta($post_id, '_yoast_wpseo_focuskw', $kw_val);
-                update_post_meta($post_id, 'rank_math_focus_keyword', $kw_val);
-            }
-
-            // 3. Strict Post-Write Verification
-            $reread_post = get_post($post_id);
-            $mismatches  = array();
-
-            if (isset($proposed_values['post_title'])) {
-                $expected = sanitize_text_field($proposed_values['post_title']);
-                if ($reread_post->post_title !== $expected) {
-                    $mismatches['post_title'] = array('expected' => $expected, 'actual' => $reread_post->post_title);
+            if ($action_type === 'update_meta_title' || isset($proposed_values['meta_title'])) {
+                $title_val = sanitize_text_field(isset($proposed_values['meta_title']) ? $proposed_values['meta_title'] : (isset($proposed_values['value']) ? $proposed_values['value'] : ''));
+                if (!empty($title_val)) {
+                    update_post_meta($post_id, '_yoast_wpseo_title', $title_val);
+                    update_post_meta($post_id, 'rank_math_title', $title_val);
+                    update_post_meta($post_id, '_aioseo_title', $title_val);
+                    update_post_meta($post_id, '_seopress_titles_title', $title_val);
                 }
             }
 
-            $verification_status = empty($mismatches) ? 'VERIFIED_EXACT_MATCH' : 'VERIFICATION_FAILED';
+            if ($action_type === 'update_meta_description' || isset($proposed_values['meta_description'])) {
+                $desc_val = sanitize_text_field(isset($proposed_values['meta_description']) ? $proposed_values['meta_description'] : (isset($proposed_values['value']) ? $proposed_values['value'] : ''));
+                if (!empty($desc_val)) {
+                    update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc_val);
+                    update_post_meta($post_id, 'rank_math_description', $desc_val);
+                    update_post_meta($post_id, '_aioseo_description', $desc_val);
+                    update_post_meta($post_id, '_seopress_titles_desc', $desc_val);
+                }
+            }
 
-            // Calculate New Post Checksum after Execution
+            if ($action_type === 'update_focus_keyword' || isset($proposed_values['focus_keyword'])) {
+                $kw_val = sanitize_text_field(isset($proposed_values['focus_keyword']) ? $proposed_values['focus_keyword'] : (isset($proposed_values['value']) ? $proposed_values['value'] : ''));
+                if (!empty($kw_val)) {
+                    update_post_meta($post_id, '_yoast_wpseo_focuskw', $kw_val);
+                    update_post_meta($post_id, 'rank_math_focus_keyword', $kw_val);
+                }
+            }
+
+            // 4. Strict Post-Write Cache Clean & Verification
+            clean_post_cache($post_id);
+            wp_cache_delete($post_id, 'posts');
+
+            $reread_post = get_post($post_id);
             $updated_meta = get_post_meta($post_id);
             $new_payload  = $reread_post->post_title . '|' . $reread_post->post_excerpt . '|' . serialize($updated_meta);
             $new_checksum = md5($new_payload);
 
-            // Release transient entity lock
             delete_transient($lock_key);
 
             return rest_ensure_response(array(

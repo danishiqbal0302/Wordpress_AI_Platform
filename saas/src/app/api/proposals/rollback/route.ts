@@ -68,13 +68,24 @@ export async function POST(req: Request) {
       headers["Authorization"] = `Bearer ${logItem.site.apiKey}`;
     }
 
-    const wpRes = await fetch(targetUrl, {
-      method: "POST",
-      headers,
-      body: requestBodyStr,
-    });
+    let wpRes;
+    try {
+      wpRes = await fetch(targetUrl, {
+        method: "POST",
+        headers,
+        body: requestBodyStr,
+      });
+    } catch (fetchErr: any) {
+      console.error("[Rollback Fetch Error]:", fetchErr);
+      return NextResponse.json(
+        {
+          error: `Could not connect to WordPress site at ${logItem.site.url}. Please verify that your website is online and reachable. (${fetchErr.message})`,
+        },
+        { status: 502 }
+      );
+    }
 
-    const wpResponseData = await wpRes.json();
+    const wpResponseData = await wpRes.json().catch(() => ({}));
 
     if (!wpRes.ok || wpResponseData.code || wpResponseData.error) {
       const errorDetail = wpResponseData.message || wpResponseData.error || "WordPress plugin rejected rollback.";

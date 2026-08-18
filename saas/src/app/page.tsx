@@ -5,16 +5,88 @@ import { ChatGPTLayout } from "../components/chat/ChatGPTLayout";
 import { HeroPromptView } from "../components/chat/HeroPromptView";
 import { ChatMessageStream, ChatMessage } from "../components/chat/ChatMessageStream";
 import { ConnectWebsiteModal } from "../components/chat/ConnectWebsiteModal";
-import { Plus, Mic, ArrowUp } from "lucide-react";
+import { EditKeysModal } from "../components/chat/EditKeysModal";
+import { DeleteWebsiteModal } from "../components/chat/DeleteWebsiteModal";
+import { Plus, Mic, ArrowUp, ImageIcon, X } from "lucide-react";
 
 export default function ChatGPTPage() {
   const [user, setUser] = React.useState<any | null>(null);
   const [userSites, setUserSites] = React.useState<any[]>([]);
   const [activeSite, setActiveSite] = React.useState<any | null>(null);
   const [connectModalOpen, setConnectModalOpen] = React.useState(false);
+  const [editKeysModalOpen, setEditKeysModalOpen] = React.useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = React.useState(false);
+  const [siteToEdit, setSiteToEdit] = React.useState<any | null>(null);
+  const [siteToDelete, setSiteToDelete] = React.useState<any | null>(null);
   const [inputPrompt, setInputPrompt] = React.useState("");
+  const [selectedImage, setSelectedImage] = React.useState<{ name: string; dataUrl: string } | null>(null);
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
+  const stickyFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleOpenDeleteModal = (site: any) => {
+    setSiteToDelete(site);
+    setDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async (siteId: string) => {
+    try {
+      const res = await fetch(`/api/websites/${siteId}`, { method: "DELETE" });
+      if (res.ok) {
+        setUserSites((prev) => {
+          const updated = prev.filter((s) => s.id !== siteId);
+          if (activeSite?.id === siteId) {
+            setActiveSite(updated[0] || null);
+          }
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.error("Delete site error:", err);
+    }
+  };
+
+  const handleOpenEditKeys = (site: any) => {
+    setSiteToEdit(site);
+    setEditKeysModalOpen(true);
+  };
+
+  const handleKeysUpdated = (updatedSite: any) => {
+    setUserSites((prev) =>
+      prev.map((s) => (s.id === updatedSite.id ? updatedSite : s))
+    );
+    if (activeSite?.id === updatedSite.id) {
+      setActiveSite(updatedSite);
+    }
+  };
+
+  // Load saved chat history when active site changes
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `wp_ai_chat_history_${activeSite?.id || "guest"}`;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setMessages(parsed);
+          return;
+        }
+      } catch (e) {
+        console.warn("Failed to parse saved chat history:", e);
+      }
+    }
+    setMessages([]);
+  }, [activeSite?.id]);
+
+  // Persist messages to localStorage whenever they update
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `wp_ai_chat_history_${activeSite?.id || "guest"}`;
+    if (messages.length > 0) {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    }
+  }, [messages, activeSite?.id]);
 
   // 1. Initial Load Auth & Site Fetch
   React.useEffect(() => {
@@ -49,22 +121,32 @@ export default function ChatGPTPage() {
   const handleNewChat = () => {
     setMessages([]);
     setInputPrompt("");
+    setSelectedImage(null);
+    if (typeof window !== "undefined") {
+      const storageKey = `wp_ai_chat_history_${activeSite?.id || "guest"}`;
+      localStorage.removeItem(storageKey);
+    }
   };
 
   // 2. Submit Prompt Handler
   const handleSubmitPrompt = async (customPrompt?: string) => {
     const textToSubmit = customPrompt || inputPrompt;
-    if (!textToSubmit || !textToSubmit.trim() || isLoading) return;
+    if ((!textToSubmit || !textToSubmit.trim()) && !selectedImage) return;
+    if (isLoading) return;
+
+    const attachedImg = selectedImage;
+    const userPromptText = textToSubmit.trim() || (attachedImg ? `Add image ${attachedImg.name} to the page` : "");
 
     const userMsg: ChatMessage = {
       id: `usr-${Date.now()}`,
       sender: "user",
-      text: textToSubmit.trim(),
+      text: attachedImg ? `📷 Attached [${attachedImg.name}]\n${userPromptText}` : userPromptText,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInputPrompt("");
+    setSelectedImage(null);
     setIsLoading(true);
 
     try {
@@ -72,9 +154,13 @@ export default function ChatGPTPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: textToSubmit.trim(),
+          prompt: userPromptText,
           siteId: activeSite?.id,
-          chatHistory: messages.map((m) => ({ role: m.sender === "user" ? "user" : "assistant", content: m.text })),
+          imageAttachment: attachedImg,
+          chatHistory: messages.slice(-4).map((m) => ({
+            role: m.sender === "user" ? "user" : "assistant",
+            content: m.text,
+          })),
         }),
       });
 
@@ -220,6 +306,8 @@ export default function ChatGPTPage() {
       onSelectSite={(site) => setActiveSite(site)}
       onNewChat={handleNewChat}
       onOpenConnectModal={() => setConnectModalOpen(true)}
+      onOpenDeleteModal={handleOpenDeleteModal}
+      onEditSiteKeys={handleOpenEditKeys}
       onLogout={handleLogout}
     >
       {/* View Switch: Hero View vs Active Chat Stream */}
@@ -228,25 +316,75 @@ export default function ChatGPTPage() {
           inputPrompt={inputPrompt}
           setInputPrompt={setInputPrompt}
           onSubmitPrompt={handleSubmitPrompt}
+          onOpenConnectModal={() => setConnectModalOpen(true)}
           isLoading={isLoading}
+          selectedImage={selectedImage}
+          onSelectImage={setSelectedImage}
         />
       ) : (
         <div className="flex-1 flex flex-col min-h-0">
           <ChatMessageStream
             messages={messages}
             siteId={activeSite?.id}
+            isLoading={isLoading}
             onApplyAction={handleApplyAction}
             onRollbackAction={handleRollbackAction}
           />
 
           {/* Sticky Bottom Floating Input Pill Box */}
-          <div className="p-4 max-w-3xl mx-auto w-full">
-            <div className="relative flex items-center bg-white dark:bg-[#212121] border border-slate-200 dark:border-slate-800 rounded-full shadow-md p-2 pl-4">
+          <div className="p-4 max-w-3xl mx-auto w-full space-y-2">
+            {/* Selected Image Thumbnail Badge */}
+            {selectedImage && (
+              <div className="flex items-center gap-2 p-1.5 px-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-2xl w-fit text-xs font-semibold text-indigo-700 dark:text-indigo-300 shadow-sm animate-in fade-in">
+                <img src={selectedImage.dataUrl} alt="Upload preview" className="h-6 w-6 rounded-lg object-cover border border-indigo-300 dark:border-indigo-700" />
+                <span className="truncate max-w-[160px]">{selectedImage.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedImage(null)}
+                  className="p-0.5 rounded-full hover:bg-indigo-200 dark:hover:bg-indigo-800 transition-colors ml-1"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+
+            <div className="relative flex items-center bg-white dark:bg-[#212121] border border-slate-200 dark:border-slate-800 rounded-full shadow-md p-2 pl-3">
               <button
                 type="button"
-                className="h-8 w-8 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors mr-2"
+                onClick={() => setConnectModalOpen(true)}
+                className="h-8 w-8 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors mr-1"
+                title="Connect New Website"
               >
                 <Plus className="h-5 w-5" />
+              </button>
+
+              <input
+                type="file"
+                ref={stickyFileInputRef}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                      setSelectedImage({
+                        name: file.name,
+                        dataUrl: evt.target?.result as string,
+                      });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+                accept="image/*"
+                className="hidden"
+              />
+
+              <button
+                type="button"
+                onClick={() => stickyFileInputRef.current?.click()}
+                className="h-8 w-8 rounded-full flex items-center justify-center text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors mr-2 shrink-0"
+                title="Attach Image from Desktop"
+              >
+                <ImageIcon className="h-5 w-5" />
               </button>
 
               <input
@@ -256,35 +394,28 @@ export default function ChatGPTPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    handleSubmitPrompt();
+                    if ((inputPrompt.trim() || selectedImage) && !isLoading) {
+                      handleSubmitPrompt();
+                    }
                   }
                 }}
-                placeholder="Ask anything..."
+                placeholder={selectedImage ? `Instructions for ${selectedImage.name}...` : "Ask follow up..."}
                 disabled={isLoading}
-                className="flex-1 bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none px-2"
+                className="flex-1 bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none px-2 selection:bg-indigo-500 selection:text-white"
               />
 
-              <div className="flex items-center gap-2 pr-1">
-                <button
-                  type="button"
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-                >
-                  <Mic className="h-4 w-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSubmitPrompt()}
-                  disabled={!inputPrompt.trim() || isLoading}
-                  className={`h-8 w-8 rounded-full flex items-center justify-center transition-all ${
-                    inputPrompt.trim() && !isLoading
-                      ? "bg-black text-white dark:bg-white dark:text-black shadow-md"
-                      : "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                  }`}
-                >
-                  <ArrowUp className="h-4 w-4 stroke-[2.5]" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => handleSubmitPrompt()}
+                disabled={(!inputPrompt.trim() && !selectedImage) || isLoading}
+                className={`h-8 w-8 rounded-full flex items-center justify-center transition-all ${
+                  (inputPrompt.trim() || selectedImage) && !isLoading
+                    ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md"
+                    : "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+              </button>
             </div>
           </div>
         </div>
@@ -298,6 +429,22 @@ export default function ChatGPTPage() {
           setUserSites((prev) => [newSite, ...prev]);
           setActiveSite(newSite);
         }}
+      />
+
+      {/* Edit Website Connection Keys Modal */}
+      <EditKeysModal
+        isOpen={editKeysModalOpen}
+        onClose={() => setEditKeysModalOpen(false)}
+        site={siteToEdit}
+        onSuccess={handleKeysUpdated}
+      />
+
+      {/* Delete Website Confirmation Modal */}
+      <DeleteWebsiteModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        site={siteToDelete}
+        onConfirmDelete={handleConfirmDelete}
       />
     </ChatGPTLayout>
   );

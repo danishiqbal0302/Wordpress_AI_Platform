@@ -22,18 +22,28 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { siteId, entityId, actionType, proposedValue, currentValue, pageTitle, pageSlug } = body;
+    let { siteId, entityId, actionType, proposedValue, currentValue, pageTitle, pageSlug } = body;
 
-    if (!siteId || !actionType || proposedValue === undefined) {
+    if (!actionType || proposedValue === undefined) {
       return NextResponse.json({ error: "Missing required execution parameters." }, { status: 400 });
     }
 
-    const site = await prisma.wordPressSite.findFirst({
-      where: {
-        id: siteId,
-        userId: payload.role !== "ADMIN" ? payload.userId : undefined,
-      },
-    });
+    let site = null;
+    if (siteId) {
+      site = await prisma.wordPressSite.findFirst({
+        where: {
+          id: siteId,
+          userId: payload.role !== "ADMIN" ? payload.userId : undefined,
+        },
+      });
+    }
+
+    if (!site) {
+      site = await prisma.wordPressSite.findFirst({
+        where: { userId: payload.userId },
+        orderBy: { createdAt: "desc" },
+      });
+    }
 
     if (!site) {
       return NextResponse.json({ error: "WordPress site not found or access denied." }, { status: 404 });
@@ -54,8 +64,12 @@ export async function POST(req: Request) {
       proposedValuesPayload.value = proposedValue;
     } else if (actionType === "update_post_title") {
       proposedValuesPayload.post_title = proposedValue;
-    } else if (actionType === "update_post_content") {
-      proposedValuesPayload.post_content = proposedValue;
+    } else if (actionType === "update_post_content" || actionType === "add_image") {
+      let normContent = (proposedValue || "").toString();
+      normContent = normContent
+        .replace(/<!--\s*wp:heading\s*-->\s*(<h1[^>]*>)/gi, '<!-- wp:heading {"level":1} -->\n$1')
+        .replace(/<!--\s*wp:heading\s*-->\s*(<h3[^>]*>)/gi, '<!-- wp:heading {"level":3} -->\n$1');
+      proposedValuesPayload.post_content = normContent;
     } else if (actionType === "update_post_excerpt") {
       proposedValuesPayload.post_excerpt = proposedValue;
     } else {
@@ -93,13 +107,24 @@ export async function POST(req: Request) {
       headers["Authorization"] = `Bearer ${site.apiKey}`;
     }
 
-    const wpRes = await fetch(targetUrl, {
-      method: "POST",
-      headers,
-      body: requestBodyStr,
-    });
+    let wpRes;
+    try {
+      wpRes = await fetch(targetUrl, {
+        method: "POST",
+        headers,
+        body: requestBodyStr,
+      });
+    } catch (fetchErr: any) {
+      console.error("[Safe Edit Fetch Error]:", fetchErr);
+      return NextResponse.json(
+        {
+          error: `Could not connect to WordPress site at ${site.url}. Please verify that your website is online and reachable, and that your connection keys are valid. (${fetchErr.message})`,
+        },
+        { status: 502 }
+      );
+    }
 
-    const wpResponseData = await wpRes.json();
+    const wpResponseData = await wpRes.json().catch(() => ({}));
 
     if (!wpRes.ok || wpResponseData.code || wpResponseData.error) {
       const errorDetail = wpResponseData.message || wpResponseData.error || "WordPress plugin rejected update.";
@@ -171,52 +196,38 @@ export async function POST(req: Request) {
           where: { auditSummaryId: { in: summaryIds } },
         });
 
-        // Map actionType to target field names and associated rule IDs
         const actionTargetMap: Record<string, { fields: string[]; rules: string[] }> = {
           update_meta_description: {
             fields: ["meta_description"],
             rules: ["SEO_001", "SEO_006", "SEO_007"],
           },
           update_meta_title: {
-            fields: ["meta_title", "seo_title", "post_title"],
-            rules: ["SEO_004", "SEO_002", "SEO_005"],
+            fields: ["meta_title", "title_tag"],
+            rules: ["SEO_004", "SEO_005", "SEO_002"],
           },
-          update_focus_keyword: {
-            fields: ["focus_keyword"],
-            rules: ["SEO_003"],
+          update_post_content: {
+            fields: ["h1", "h1_heading", "content", "body_content"],
+            rules: ["CONTENT_001", "CONTENT_003"],
           },
           update_alt_text: {
-            fields: ["alt_text", "_wp_attachment_image_alt"],
+            fields: ["alt_text", "image_alt"],
             rules: ["MEDIA_001", "MEDIA_002"],
           },
           update_post_title: {
-            fields: ["post_title"],
-            rules: ["CONTENT_006", "CONTENT_007", "CONTENT_009"],
-          },
-          update_post_excerpt: {
-            fields: ["post_excerpt"],
-            rules: ["CONTENT_003", "CONTENT_005"],
-          },
-          update_post_content: {
-            fields: ["post_content"],
-            rules: ["CONTENT_001", "CONTENT_002"],
+            fields: ["post_title", "title"],
+            rules: ["CONTENT_002"],
           },
         };
 
-        const targetSpec = actionTargetMap[actionType] || { fields: [], rules: [] };
+        const targetSpec = actionTargetMap[actionType] || { fields: [actionType], rules: [actionType] };
         const idsToDelete: string[] = [];
 
         for (const iss of allIssues) {
-          let payload = iss.actionPayload as any;
-          if (typeof payload === "string") {
-            try { payload = JSON.parse(payload); } catch (e) {}
-          }
+          const issDetails = ((iss as any).details || (iss as any).actionPayload || {}) as any;
+          const issRuleId = ((iss as any).ruleId || (iss as any).title || "").toUpperCase();
+          const issFieldName = (issDetails.field || issDetails.fieldName || "").toLowerCase();
+          const issEntityId = issDetails.entityId || issDetails.postId || issDetails.pageId;
 
-          const issRuleId = payload?.rule_id || (iss.title && iss.title.includes(":") ? iss.title.split(":")[0].trim() : "");
-          const issEntityId = payload?.entity_id || payload?.entityId || iss.id;
-          const issFieldName = (payload?.field_name || (iss as any).field_name || "").toLowerCase();
-
-          // 1. Check entity match
           const matchesEntity =
             String(issEntityId) === String(targetPostId) ||
             (iss.affectedUrl && (iss.affectedUrl.includes(`p=${targetPostId}`) || iss.affectedUrl.includes(`id=${targetPostId}`) || iss.affectedUrl.includes(`attachment_id=${targetPostId}`)));
@@ -225,7 +236,6 @@ export async function POST(req: Request) {
             continue;
           }
 
-          // 2. Check rule or field match
           const matchesRuleId = targetSpec.rules.includes(issRuleId);
           const matchesField = targetSpec.fields.some((f) => issFieldName === f || iss.title.toLowerCase().includes(f));
           const matchesDirectAction = issRuleId === actionType || iss.title.includes(actionType);
@@ -250,6 +260,7 @@ export async function POST(req: Request) {
       message: "Safe edit applied and verified successfully on WordPress site.",
       proposal,
       logItem,
+      actionLogId: logItem.id,
       wpResult: wpResponseData,
     });
   } catch (error: any) {

@@ -4,11 +4,20 @@ import { z } from "zod";
 import { prisma } from "../../../../lib/prisma";
 import { verifyToken } from "../../../../lib/auth";
 import { probeSiteConnection } from "../../../../lib/diagnostics";
+import crypto from "crypto";
 
 const connectSchema = z.object({
-  siteUrl: z.string().min(1, "Site URL is required."),
-  apiKey: z.string().min(1, "Platform API Key is required."),
-  hmacSecret: z.string().min(1, "HMAC Secret Key is required."),
+  siteUrl: z.string().refine((url) => {
+    try {
+      const fullUrl = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
+      const parsed = new URL(fullUrl);
+      return parsed.hostname.includes(".") && parsed.hostname.length >= 3;
+    } catch (e) {
+      return false;
+    }
+  }, "Please enter a valid website domain or URL (e.g. https://example.com)"),
+  apiKey: z.string().min(6, "API Key must be at least 6 characters."),
+  hmacSecret: z.string().min(6, "HMAC Secret Key must be at least 6 characters."),
 });
 
 export async function POST(req: Request) {
@@ -46,12 +55,52 @@ export async function POST(req: Request) {
     if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
       formattedUrl = "https://" + formattedUrl;
     }
+    formattedUrl = formattedUrl.replace(/\/+$/, "");
 
-    // Live Probe against WordPress Plugin Health REST Endpoint
+    // 1. Live Probe against WordPress Plugin Health REST Endpoint
     const probeResult = await probeSiteConnection(formattedUrl);
+    if (probeResult.connectionState === "not_detected") {
+      return NextResponse.json(
+        {
+          error: `Could not detect WP-AI Connector plugin on '${formattedUrl}'. Please download, install, and activate the plugin on your WordPress site.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Authenticated Probe against Inventory Endpoint with User's Keys
+    try {
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const signature = crypto.createHmac("sha256", hmacSecret.trim()).update(`${timestamp}.`).digest("hex");
+      const invHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-WP-AI-Timestamp": timestamp,
+        "X-WP-AI-Signature": signature,
+        "X-WP-AI-API-Key": apiKey.trim(),
+        "Authorization": `Bearer ${apiKey.trim()}`,
+      };
+
+      const invRes = await fetch(`${formattedUrl}/wp-json/wp-ai/v1/inventory`, { headers: invHeaders });
+      if (!invRes.ok) {
+        return NextResponse.json(
+          {
+            error: `Authentication failed on '${formattedUrl}' (HTTP ${invRes.status}). Please check that your Plugin API Key and HMAC Secret Key match your WP Admin settings.`,
+          },
+          { status: 400 }
+        );
+      }
+    } catch (authErr: any) {
+      return NextResponse.json(
+        {
+          error: `Unable to verify keys on '${formattedUrl}': ${authErr.message || "Connection refused"}. Make sure your WordPress site is online.`,
+        },
+        { status: 400 }
+      );
+    }
+
     const healthDiagnostics = probeResult.healthDiagnostics;
 
-    // Create or update ConnectedWebsite record in PostgreSQL
+    // 3. Save Verified ConnectedWebsite record in PostgreSQL
     let connectedRecord;
     if ((prisma as any).connectedWebsite) {
       try {
@@ -61,7 +110,7 @@ export async function POST(req: Request) {
             siteUrl: formattedUrl,
             apiKey: apiKey.trim(),
             hmacSecret: hmacSecret.trim(),
-            status: probeResult.connectionState === "connected_healthy" ? "active" : "degraded",
+            status: "active",
           },
         });
       } catch (e) {
@@ -69,7 +118,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Create corresponding WordPressSite record for Dashboard display with apiKey & hmacSecret
+    // 4. Save Verified WordPressSite record for Assistant display
     const siteName = new URL(formattedUrl).hostname.replace("www.", "");
     const siteRecord = await prisma.wordPressSite.create({
       data: {
@@ -77,7 +126,7 @@ export async function POST(req: Request) {
         name: siteName.charAt(0).toUpperCase() + siteName.slice(1),
         url: formattedUrl,
         adminEmail: "admin@" + siteName,
-        connectionState: probeResult.connectionState,
+        connectionState: "connected_healthy",
         apiKey: apiKey.trim(),
         hmacSecret: hmacSecret.trim(),
         health: healthDiagnostics as any,
@@ -87,10 +136,10 @@ export async function POST(req: Request) {
       },
     });
 
-    console.log("[Websites Connect API] Website successfully connected in PostgreSQL:", siteRecord.id);
+    console.log("[Websites Connect API] Verified WordPress website connected:", siteRecord.id);
 
     return NextResponse.json({
-      message: "Website connected successfully!",
+      message: "Website verified and connected successfully!",
       connectedWebsiteId: connectedRecord?.id || siteRecord.id,
       site: siteRecord,
       diagnostics: healthDiagnostics,

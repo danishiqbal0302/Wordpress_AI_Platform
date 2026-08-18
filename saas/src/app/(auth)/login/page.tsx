@@ -8,8 +8,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "../../../components/ui/card";
-import { ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
+import { Sparkles, ArrowRight, AlertCircle, Lock, Mail } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address."),
@@ -54,7 +53,8 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
+      // Redirect directly to ChatGPT Assistant Chat page
+      router.push("/");
     } catch (err) {
       console.error(err);
       setApiError("Network error. Please check your connection and try again.");
@@ -63,82 +63,104 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-screen bg-background flex flex-col items-center justify-center p-4 overflow-hidden selection:bg-primary/20 selection:text-primary">
-      {/* Background Glowing Ambient Orbs matching landing page */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-gradient-to-tr from-blue-600/20 via-indigo-500/20 to-emerald-500/20 blur-[120px] rounded-full pointer-events-none" />
+    <div className="min-h-screen w-full bg-[#ffffff] dark:bg-[#171717] text-slate-900 dark:text-white flex flex-col justify-between p-6 font-sans">
+      {/* Top Header Logo */}
+      <header className="max-w-6xl mx-auto w-full flex items-center justify-between py-2">
+        <Link href="/" className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+            <Sparkles className="h-4 w-4" />
+          </div>
+          <span className="font-bold text-lg tracking-tight text-slate-900">WordPress AI</span>
+        </Link>
+        <Link href="/register">
+          <Button variant="outline" className="rounded-full border border-slate-300 bg-white hover:bg-slate-100 text-slate-900 text-xs font-semibold px-4 py-1.5 shadow-sm">
+            Sign up for free
+          </Button>
+        </Link>
+      </header>
 
-      <div className="w-full max-w-md space-y-6 relative z-10">
-        {/* Brand Header */}
+      {/* Main Login Form Card */}
+      <main className="max-w-md w-full mx-auto my-auto py-12 px-4 space-y-6 animate-in fade-in duration-300">
         <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-emerald-500 p-0.5 shadow-lg shadow-blue-500/20">
-              <div className="h-full w-full bg-background rounded-[10px] flex items-center justify-center">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-              </div>
-            </div>
-            <span className="font-extrabold text-xl tracking-tight text-foreground">
-              WordPress <span className="gradient-text">AI</span> Platform
-            </span>
-          </Link>
+          <h1 className="text-3xl font-semibold tracking-tight">Welcome back</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Log in to manage your connected WordPress sites & AI optimizations
+          </p>
         </div>
 
-        <Card className="border-border/80 shadow-2xl backdrop-blur-2xl bg-card/70">
-          <CardHeader className="text-center space-y-1">
-            <CardTitle className="text-xl font-bold">Sign in to your account</CardTitle>
-            <CardDescription className="text-xs">
-              Enter your credentials to access site audits and AI copilot.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {apiError && (
-              <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2 font-medium">
-                <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
-                <span>{apiError}</span>
-              </div>
-            )}
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <Input
-                label="Email Address"
-                type="email"
-                placeholder="name@company.com"
-                error={errors.email?.message}
-                {...register("email")}
-              />
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground font-medium">Password</span>
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs text-primary hover:underline font-medium"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-                <Input
-                  type="password"
-                  placeholder="••••••••"
-                  error={errors.password?.message}
-                  {...register("password")}
-                />
-              </div>
+        {apiError && (
+          <div className="p-3 text-xs rounded-2xl bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300 border border-red-200 dark:border-red-800/60 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{apiError}</span>
+          </div>
+        )}
 
-              <Button
-                type="submit"
-                className="w-full py-5 text-sm font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20"
-                isLoading={loading}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+              Email Address
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+              <Input
+                {...register("email")}
+                type="email"
+                placeholder="name@example.com"
+                className="pl-10 h-11 rounded-2xl bg-slate-50 dark:bg-[#212121] border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-700 selection:bg-blue-500 selection:text-white"
+              />
+            </div>
+            {errors.email && (
+              <p className="text-[11px] text-red-500 mt-1">{errors.email.message}</p>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Password
+              </label>
+              <Link
+                href="/forgot-password"
+                className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
               >
-                Sign In <ArrowRight className="h-4 w-4 ml-1.5" />
-              </Button>
-            </form>
-          </CardContent>
-          <CardFooter className="justify-center text-xs text-muted-foreground border-t border-border/40 pt-4">
-            Don't have an account?{" "}
-            <Link href="/register" className="text-primary font-semibold hover:underline ml-1">
-              Create account
-            </Link>
-          </CardFooter>
-        </Card>
-      </div>
+                Forgot password?
+              </Link>
+            </div>
+            <div className="relative">
+              <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+              <Input
+                {...register("password")}
+                type="password"
+                placeholder="••••••••"
+                className="pl-10 h-11 rounded-2xl bg-slate-50 dark:bg-[#212121] border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-700 selection:bg-blue-500 selection:text-white"
+              />
+            </div>
+            {errors.password && (
+              <p className="text-[11px] text-red-500 mt-1">{errors.password.message}</p>
+            )}
+          </div>
+
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full h-11 rounded-full bg-black hover:bg-slate-800 text-white dark:bg-white dark:text-black dark:hover:bg-slate-200 text-sm font-semibold shadow-md transition-all mt-2"
+          >
+            {loading ? "Logging in..." : "Continue"}
+          </Button>
+        </form>
+
+        <div className="text-center text-xs text-slate-500 dark:text-slate-400 pt-2">
+          Don't have an account?{" "}
+          <Link href="/register" className="font-semibold text-slate-900 dark:text-white hover:underline">
+            Sign up for free
+          </Link>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="text-center text-[10px] text-slate-400 py-2">
+        WordPress AI Platform &copy; {new Date().getFullYear()}
+      </footer>
     </div>
   );
 }
