@@ -367,7 +367,7 @@ export function ChatGPTLayout({
         </header>
 
         {/* Children (Hero Prompt View or Chat Stream) */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">{children}</div>
+        <div className="flex-1 flex flex-col min-h-0 relative overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">{children}</div>
 
         {/* Footer Disclaimer */}
         <div className="text-[10px] text-center text-slate-400 pb-2">

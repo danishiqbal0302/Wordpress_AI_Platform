@@ -60,10 +60,20 @@ export default function ChatGPTPage() {
     }
   };
 
-  // Load saved chat history when active site changes
+  // Storage Key Helper: User-scoped and Site-scoped
+  const getChatStorageKey = React.useCallback(() => {
+    if (!user) return "wp_ai_chat_history_guest";
+    return `wp_ai_chat_history_user_${user.id}_site_${activeSite?.id || "none"}`;
+  }, [user?.id, activeSite?.id]);
+
+  // Load saved chat history when user or active site changes
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    const storageKey = `wp_ai_chat_history_${activeSite?.id || "guest"}`;
+    if (!user) {
+      setMessages([]);
+      return;
+    }
+    const storageKey = getChatStorageKey();
     const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
@@ -77,16 +87,16 @@ export default function ChatGPTPage() {
       }
     }
     setMessages([]);
-  }, [activeSite?.id]);
+  }, [user?.id, activeSite?.id, getChatStorageKey]);
 
   // Persist messages to localStorage whenever they update
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    const storageKey = `wp_ai_chat_history_${activeSite?.id || "guest"}`;
+    const storageKey = getChatStorageKey();
     if (messages.length > 0) {
       localStorage.setItem(storageKey, JSON.stringify(messages));
     }
-  }, [messages, activeSite?.id]);
+  }, [messages, getChatStorageKey]);
 
   // 1. Initial Load Auth & Site Fetch
   React.useEffect(() => {
@@ -113,6 +123,12 @@ export default function ChatGPTPage() {
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
+    if (typeof window !== "undefined") {
+      const storageKey = getChatStorageKey();
+      localStorage.removeItem(storageKey);
+      localStorage.removeItem("wp_ai_chat_history_guest");
+    }
+    setMessages([]);
     setUser(null);
     setUserSites([]);
     setActiveSite(null);
@@ -123,7 +139,7 @@ export default function ChatGPTPage() {
     setInputPrompt("");
     setSelectedImage(null);
     if (typeof window !== "undefined") {
-      const storageKey = `wp_ai_chat_history_${activeSite?.id || "guest"}`;
+      const storageKey = getChatStorageKey();
       localStorage.removeItem(storageKey);
     }
   };

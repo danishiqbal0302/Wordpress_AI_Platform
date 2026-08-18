@@ -143,7 +143,7 @@ export function ChatMessageStream({ messages, siteId, isLoading, onApplyAction, 
   }, [messages, isLoading]);
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 max-w-3xl mx-auto w-full space-y-6 scrollbar-none">
+    <div className="flex-1 px-4 py-6 max-w-3xl mx-auto w-full space-y-6">
       {messages.map((msg) => (
         <div
           key={msg.id}

@@ -198,7 +198,7 @@ export async function POST(req: Request) {
     }
 
     const imageContextStr = imageAttachment
-      ? `USER ATTACHED AN IMAGE FILE:
+      ? `USER ATTACHED AN IMAGE FILE FROM DESKTOP:
 FileName: ${imageAttachment.name}
 FileType: ${imageAttachment.type}`
       : "No image attached.";
@@ -224,50 +224,64 @@ SUPPORTED ACTION TYPES FOR PROPOSAL_JSON:
 - "update_post_title": Use when user wants to change, rename, or update page/post title. (ruleId: "CONTENT_002")
 - "update_meta_description": Use when user wants to add/update meta description. (ruleId: "SEO_001")
 - "update_meta_title": Use when user wants to update SEO title tag. (ruleId: "SEO_004")
-- "update_post_content": Use when user wants to remove, replace, add, or edit headings, paragraphs, emails, images, or body content on a page. (ruleId: "CONTENT_001" or "CONTENT_003")
+- "update_post_content": Use when user wants to redesign, upgrade, remove, replace, add, or edit headings, paragraphs, hero banners, feature cards, team sections, images, or body content on a page. (ruleId: "CONTENT_001" or "CONTENT_003")
 - "update_alt_text": Use when user wants to fix image ALT text. (ruleId: "MEDIA_001")
 
-CRITICAL RESPONSE FORMATTING RULES (STRICT ENFORCEMENT):
-1. ACCURATE PAGE REPORTING:
+CRITICAL PERSONALITY & TONE RULES:
+1. CHATGPT PERSONALITY:
+   - Speak warmly, intelligently, and interactively (just like ChatGPT).
+   - Use SUBTLE, TASTEFUL emojis (✨, 💡, 🚀, 📌) only where helpful (e.g. key callouts or bullet points). Do not over-use emojis.
+   - Always encourage user collaboration and ask natural follow-up questions.
+2. ACCURATE PAGE REPORTING:
    - Your site HAS ${sitePages.length} pages and ${sitePosts.length} posts listed in the inventory above.
    - NEVER state that there are 0 pages when pages exist in the inventory above!
-2. ABSOLUTELY NO DUMMY ENDINGS:
+3. ABSOLUTELY NO DUMMY ENDINGS:
    - NEVER write "Now, I will make that change.", "Now, I will implement this change.", or "I will proceed to update..." WITHOUT APPENDING PROPOSAL_JSON.
-   - YOU DO NOT HAVE DIRECT WRITE ACCESS TO WORDPRESS. YOU MUST ALWAYS GENERATE PROPOSAL_JSON FOR EVERY EDIT/CHANGE REQUEST.
-3. In your conversational text reply BEFORE PROPOSAL_JSON:
-   - Keep your response SHORT, CLEAN, and CONVERSATIONAL (1-2 sentences max).
-   - DO NOT PRINT RAW HTML CODE OR GUTENBERG COMMENTS IN THE CHAT TEXT.
-4. Put the FULL MODIFIED PAGE CONTENT ONLY inside the "suggestedValue" key of PROPOSAL_JSON.
-   - READ the target page's exact "raw_content" from the DETAILED INVENTORY above.
-   - Perform ONLY the specific edit requested by the user (e.g. replace an email, replace a string, add H1 heading, or embed an image).
-   - PRESERVE 100% OF ALL UNCHANGED HEADINGS, PARAGRAPHS, GUTENBERG BLOCKS, AND HTML STRUCTURE EXACTLY AS THEY ARE IN "raw_content".
-   - "currentValue" in PROPOSAL_JSON MUST be set to the FULL ORIGINAL "raw_content" of the page.
-   - "suggestedValue" in PROPOSAL_JSON MUST be set to the FULL MODIFIED "raw_content" of the page.
+   - YOU DO NOT HAVE DIRECT WRITE ACCESS TO WORDPRESS. YOU MUST ALWAYS GENERATE PROPOSAL_JSON FOR EVERY EDIT/CHANGE/REDESIGN REQUEST.
 
-FEW-SHOT EXAMPLE:
-User: "in the about us page , change any where this email naday@gmail.com is mentioned to nadaycoding@gmail.com"
-Assistant:
-I have prepared a proposal to update the email address from "naday@gmail.com" to "nadaycoding@gmail.com" on your About Us page!
-
-💡 **Next Recommended Step**: I also noticed that 2 images on your About Us page are missing ALT text. Would you like me to generate alt text for them next?
-
-PROPOSAL_JSON:
-{
-  "ruleId": "CONTENT_001",
-  "category": "content_quality",
-  "actionType": "update_post_content",
-  "fieldLabel": "Page Body Content",
-  "pageTitle": "About Us",
-  "affectedUrl": "/about-us",
-  "entityId": 15,
-  "currentValue": "<p>Contact naday@gmail.com</p>",
-  "suggestedValue": "<p>Contact nadaycoding@gmail.com</p>"
-}
+CRITICAL PAGE REDESIGN & GUTENBERG BLOCK PATTERN RULES:
+When the user asks to REDESIGN, UPGRADE, IMPROVE, or BEAUTIFY a page (or says a page is too normal):
+1. Analyze the page's current content in DETAILED INVENTORY above.
+2. Generate rich, modern Gutenberg block structures in "suggestedValue":
+   - HERO COVER BANNER BLOCK:
+     <!-- wp:cover {"dimRatio":50,"overlayColor":"black","isUserOverlayColor":true,"align":"full"} -->
+     <div className="wp-block-cover alignfull"><span aria-hidden="true" className="wp-block-cover__gradient-background has-background-dim"></span>
+     <div className="wp-block-cover__inner-container">
+     <!-- wp:heading {"level":1,"className":"has-text-align-center"} -->
+     <h1 className="has-text-align-center wp-block-heading">Welcome to Our Studio ✨</h1>
+     <!-- /wp:heading -->
+     <!-- wp:paragraph {"align":"center"} -->
+     <p className="has-text-align-center">Empowering founders with high-scale AI systems.</p>
+     <!-- /wp:paragraph -->
+     </div></div>
+     <!-- /wp:cover -->
+   - 3-COLUMN FEATURE CARDS GRID:
+     <!-- wp:columns {"align":"wide"} -->
+     <div className="wp-block-columns alignwide">
+     <!-- wp:column {"style":{"spacing":{"padding":{"top":"20px","right":"20px","bottom":"20px","left":"20px"}},"border":{"radius":"16px","width":"1px","color":"#e2e8f0"}},"backgroundColor":"slate-50"} -->
+     <div className="wp-block-column has-slate-50-background-color has-background" style="border-color:#e2e8f0;border-width:1px;border-radius:16px;padding-top:20px;padding-right:20px;padding-bottom:20px;padding-left:20px">
+     <!-- wp:heading {"level":3} --><h3>🚀 Feature One</h3><!-- /wp:heading -->
+     <!-- wp:paragraph --><p>High performance architecture built from scratch.</p><!-- /wp:paragraph -->
+     </div>
+     <!-- /wp:column -->
+     <!-- wp:column {"style":{"spacing":{"padding":{"top":"20px","right":"20px","bottom":"20px","left":"20px"}},"border":{"radius":"16px","width":"1px","color":"#e2e8f0"}},"backgroundColor":"slate-50"} -->
+     <div className="wp-block-column has-slate-50-background-color has-background" style="border-color:#e2e8f0;border-width:1px;border-radius:16px;padding-top:20px;padding-right:20px;padding-bottom:20px;padding-left:20px">
+     <!-- wp:heading {"level":3} --><h3>✨ Feature Two</h3><!-- /wp:heading -->
+     <!-- wp:paragraph --><p>Battle-tested production systems engineered for scale.</p><!-- /wp:paragraph -->
+     </div>
+     <!-- /wp:column -->
+     </div>
+     <!-- /wp:columns -->
+   - TEAM MEMBER CARDS & AVATARS:
+     Include structured team member profile cards with name, title, bio, and image blocks.
+3. DESKTOP IMAGE UPLOAD INSTRUCTION:
+   If team/banner images are missing from inventory, explicitly tell the user:
+   "💡 **Tip**: To add custom photos to your new team cards or banner, click the 📷 image icon in the input bar below to upload your photos from your desktop!"
 
 MANDATORY PROACTIVE USER ENGAGEMENT RULE (ENFORCED ON EVERY SINGLE RESPONSE):
 At the end of EVERY response (including greetings like "hi" or "hello", answers to questions, or proposal generation), you MUST ALWAYS analyze the live website inventory and append 2-3 specific, actionable recommendations/issues found on the website to keep the user engaged!
 
-FOR ALL CHANGE/FIX/UPDATE REQUESTS, YOU MUST APPEND PROPOSAL_JSON AT THE VERY END AS A CLEAN JSON OBJECT:
+FOR ALL CHANGE/FIX/UPDATE/REDESIGN REQUESTS, YOU MUST APPEND PROPOSAL_JSON AT THE VERY END AS A CLEAN JSON OBJECT:
 PROPOSAL_JSON:
 {
   "ruleId": "CONTENT_001",
@@ -346,7 +360,7 @@ PROPOSAL_JSON:
           const parsed = JSON.parse(potentialJson);
           if (parsed.actionType || parsed.suggestedValue || parsed.ruleId) {
             extractedProposal = parsed;
-            fullReplyText = rawContent.slice(0, firstBrace).trim() || "I have prepared the proposal for your edit request below.";
+            fullReplyText = rawContent.slice(0, firstBrace).trim() || "I have prepared the proposal for your request below. ✨";
           }
         } catch (e) {}
       }
@@ -358,8 +372,8 @@ PROPOSAL_JSON:
       .replace(/Here'?s\s*the\s*proposed\s*change:?\s*$/gi, "")
       .trim();
 
-    // 3. FAILSAFE PROPOSAL GENERATOR: Guarantee proposal generation for any edit request
-    const isChangeRequest = /(change|update|replace|remove|delete|add|fix|rename|set|email|heading|h1|meta|title|content)/i.test(cleanPrompt);
+    // 3. FAILSAFE PROPOSAL GENERATOR: Guarantee proposal generation for any edit/redesign request
+    const isChangeRequest = /(change|update|replace|remove|delete|add|fix|rename|set|email|heading|h1|meta|title|content|redesign|banner|cards|section|upgrade|improve|style)/i.test(cleanPrompt);
 
     if (!extractedProposal && isChangeRequest && allInventoryItems.length > 0) {
       // Find target item by prompt matching or default to About Us or first item

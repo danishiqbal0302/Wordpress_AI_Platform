@@ -6,13 +6,9 @@ import { hashPassword, generateToken } from "../../../../lib/auth";
 const registerSchema = z
   .object({
     name: z.string().min(2, "Full name must be at least 2 characters."),
-    agencyName: z.string().min(2, "Agency name must be at least 2 characters."),
+    agencyName: z.string().optional(),
     email: z.string().email("Please enter a valid email address."),
-    password: z
-      .string()
-      .min(8, "Password must be at least 8 characters.")
-      .regex(/[A-Za-z]/, "Password must contain at least one letter.")
-      .regex(/[0-9!@#$%^&*]/, "Password must contain at least one number or special character."),
+    password: z.string().min(6, "Password must be at least 6 characters."),
     confirmPassword: z.string().min(1, "Please confirm your password."),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -36,6 +32,7 @@ export async function POST(req: Request) {
 
     const { name, agencyName, email, password } = result.data;
     const normalizedEmail = email.toLowerCase().trim();
+    const finalAgencyName = agencyName && agencyName.trim().length >= 2 ? agencyName.trim() : `${name.trim()}'s Agency`;
 
     // Check existing user in PostgreSQL
     const existingUser = await prisma.user.findUnique({
@@ -57,7 +54,7 @@ export async function POST(req: Request) {
         name,
         email: normalizedEmail,
         passwordHash,
-        agencyName,
+        agencyName: finalAgencyName,
         role: "USER",
       },
     });
@@ -105,10 +102,10 @@ export async function POST(req: Request) {
     });
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Register Error:", error);
     return NextResponse.json(
-      { error: "An internal error occurred during registration." },
+      { error: `An error occurred during registration: ${error.message}` },
       { status: 500 }
     );
   }
