@@ -12,10 +12,6 @@ class WP_AI_Security {
      */
     public static function verify_request(WP_REST_Request $request) {
         $headers = $request->get_headers();
-        $log_data = "Request Headers: " . print_r($headers, true) . "\n";
-        $log_data .= "Method: " . $request->get_method() . "\n";
-        @file_put_contents(WP_CONTENT_DIR . '/uploads/wp-ai-headers.log', $log_data, FILE_APPEND);
-
         $received_signature = $request->get_header('X-WP-AI-Signature');
         $received_timestamp = $request->get_header('X-WP-AI-Timestamp');
         $api_key_header     = $request->get_header('X-WP-AI-API-Key');
@@ -26,6 +22,24 @@ class WP_AI_Security {
                 $api_key_header = substr($auth_header, 7);
             }
         }
+
+        $stored_api_key = get_option('wp_ai_api_key');
+        $hmac_secret = get_option('wp_ai_hmac_secret');
+        $raw_body = $request->get_body();
+        $payload_to_sign = $received_timestamp . '.' . $raw_body;
+        $expected_signature = hash_hmac('sha256', $payload_to_sign, $hmac_secret);
+
+        $log_data = "=========================================\n";
+        $log_data .= "Time: " . date('Y-m-d H:i:s') . "\n";
+        $log_data .= "Method: " . $request->get_method() . "\n";
+        $log_data .= "Received Signature: " . $received_signature . "\n";
+        $log_data .= "Expected Signature: " . $expected_signature . "\n";
+        $log_data .= "Stored Key: " . $stored_api_key . "\n";
+        $log_data .= "Header Key: " . $api_key_header . "\n";
+        $log_data .= "HMAC Secret: " . $hmac_secret . "\n";
+        $log_data .= "Payload to sign: " . $payload_to_sign . "\n";
+        $log_data .= "Raw Body: " . $raw_body . "\n";
+        @file_put_contents(ABSPATH . 'wp-ai-headers.log', $log_data, FILE_APPEND);
 
         // 1. API Key Fallback Authentication
         $stored_api_key = get_option('wp_ai_api_key');
