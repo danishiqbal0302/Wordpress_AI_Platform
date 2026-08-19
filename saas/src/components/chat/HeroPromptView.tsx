@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, ArrowUp, ImageIcon, PenTool, Globe, Download, X } from "lucide-react";
+import { Plus, ArrowUp, ImageIcon, PenTool, Globe, Download, X, Sparkles, Activity, Search, Bot } from "lucide-react";
 
 interface HeroPromptViewProps {
   inputPrompt: string;
@@ -26,9 +26,12 @@ export function HeroPromptView({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const suggestions = [
-    { icon: ImageIcon, label: "Add image ALT text to missing images", prompt: "Add alt text to images missing alt text" },
-    { icon: PenTool, label: "Write missing meta description for my pages", prompt: "Write missing meta description for my pages" },
-    { icon: Globe, label: "Fix thin content and structural H1 headings", prompt: "Fix thin content on my website" },
+    { icon: ImageIcon, label: "Add image ALT text to missing images", prompt: "Audit alt texts and bulk-fix all missing alternative tags." },
+    { icon: PenTool, label: "Write missing meta description for my pages", prompt: "Write missing meta description for my pages." },
+    { icon: Globe, label: "Fix thin content and structural H1 headings", prompt: "Fix thin content on my website." },
+    { icon: Sparkles, label: "Scan for content freshness & decay rankings", prompt: "Scan for content freshness and find pages decaying in SEO rankings." },
+    { icon: Search, label: "Diagnose Google Search Console indexing errors", prompt: "Check for Search Console errors and diagnose indexing problems." },
+    { icon: Bot, label: "Analyze site memory log & learned database rules", prompt: "Show me what you have learned and saved in the site memory log." },
   ];
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -168,7 +171,7 @@ export function HeroPromptView({
       </div>
 
       {/* Suggestion Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-2xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 w-full max-w-3xl">
         {suggestions.map((item, index) => {
           const IconComp = item.icon;
           return (

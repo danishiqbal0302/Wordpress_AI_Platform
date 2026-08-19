@@ -24,9 +24,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     let { siteId, entityId, actionType, proposedValue, currentValue, pageTitle, pageSlug } = body;
 
-    if (!actionType || proposedValue === undefined) {
+    const proposedValFinal = proposedValue !== undefined ? proposedValue : body.suggestedValue;
+
+    if (!actionType || proposedValFinal === undefined) {
       return NextResponse.json({ error: "Missing required execution parameters." }, { status: 400 });
     }
+    proposedValue = proposedValFinal;
 
     let site = null;
     if (siteId) {
@@ -72,6 +75,22 @@ export async function POST(req: Request) {
       proposedValuesPayload.post_content = normContent;
     } else if (actionType === "update_post_excerpt") {
       proposedValuesPayload.post_excerpt = proposedValue;
+    } else if (actionType === "create_post") {
+      proposedValuesPayload.post_title = proposedValue.post_title || proposedValue.title || "New Page";
+      proposedValuesPayload.post_content = proposedValue.post_content || proposedValue.content || "";
+      proposedValuesPayload.post_type = proposedValue.post_type || "page";
+      proposedValuesPayload.post_status = proposedValue.post_status || "publish";
+    } else if (actionType === "create_menu") {
+      proposedValuesPayload.menu_name = proposedValue.menu_name || "Main Menu";
+      proposedValuesPayload.menu_items = proposedValue.menu_items || [];
+    } else if (actionType === "set_front_page") {
+      proposedValuesPayload.page_id = parseInt(proposedValue.page_id || proposedValue, 10);
+     } else if (actionType === "set_site_logo") {
+      proposedValuesPayload.logo_url = proposedValue.logo_url || proposedValue;
+    } else if (actionType === "import_media") {
+      proposedValuesPayload.image_url = proposedValue.image_url || proposedValue;
+      proposedValuesPayload.alt_text = proposedValue.alt_text || "";
+      proposedValuesPayload.title = proposedValue.title || "";
     } else {
       proposedValuesPayload.meta = { [actionType]: proposedValue };
     }
@@ -137,17 +156,19 @@ export async function POST(req: Request) {
 
     console.log(`[Safe Edit Success] Verified on WordPress for Post ID #${targetPostId}:`, wpResponseData);
 
+    const resolvedPostId = wpResponseData?.post_id || targetPostId;
+
     // Save ActionProposal in PostgreSQL
     const proposal = await prisma.actionProposal.create({
       data: {
         siteId: site.id,
         userId: payload.userId,
-        targetPageId: targetPostId,
+        targetPageId: resolvedPostId,
         targetPageTitle: pageTitle || site.name,
         targetPageSlug: pageSlug || "page",
         actionType,
-        currentValues: { value: currentValue || "" },
-        proposedValues: { value: proposedValue },
+        currentValues: typeof currentValue === "object" ? currentValue : { value: currentValue || "" },
+        proposedValues: typeof proposedValue === "object" ? proposedValue : { value: proposedValue },
         approvedChecksum: wpResponseData?.previous_checksum || "approved_chk_" + Date.now(),
         currentChecksum: wpResponseData?.new_checksum || "current_chk_" + Date.now(),
         isStale: false,
@@ -164,19 +185,19 @@ export async function POST(req: Request) {
       data: {
         siteId: site.id,
         userId: payload.userId,
-        actionTitle: `Updated ${actionType.replace(/_/g, " ")} on ${pageTitle || "Page"}`,
-        targetEntity: pageTitle || `ID #${targetPostId}`,
+        actionTitle: `Executed ${actionType.replace(/_/g, " ")} on ${pageTitle || "Site"}`,
+        targetEntity: pageTitle || `ID #${resolvedPostId}`,
         executedBy: payload.email || "User",
         executionState: "SUCCEEDED",
         verificationStatus: "VERIFIED_EXACT_MATCH",
         rollbackStatus: "available",
         rollbackConfidence: "full",
-        checksum: wpResponseData?.snapshot_id || `wp_ai_snapshot_${targetPostId}_${Date.now()}`,
+        checksum: wpResponseData?.snapshot_id || `wp_ai_snapshot_${resolvedPostId}_${Date.now()}`,
         snapshotData: {
-          previousValue: currentValue || "",
-          appliedValue: proposedValue,
-          snapshotId: wpResponseData?.snapshot_id || `wp_ai_snapshot_${targetPostId}_${Date.now()}`,
-          postId: targetPostId,
+          previousValue: typeof currentValue === "object" ? currentValue : (currentValue || ""),
+          appliedValue: typeof proposedValue === "object" ? proposedValue : proposedValue,
+          snapshotId: wpResponseData?.snapshot_id || `wp_ai_snapshot_${resolvedPostId}_${Date.now()}`,
+          postId: resolvedPostId,
           actionType,
         },
         sideEffects: [],

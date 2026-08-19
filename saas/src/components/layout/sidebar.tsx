@@ -58,7 +58,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         <div>
           {/* Brand Header */}
           <div className="h-16 px-6 border-b border-border/60 flex items-center justify-between">
-            <Link href="/dashboard" onClick={onClose} className="flex items-center gap-3 group">
+            <Link href="/" onClick={onClose} className="flex items-center gap-3 group">
               <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-emerald-500 p-0.5 shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform">
                 <div className="h-full w-full bg-background rounded-[10px] flex items-center justify-center">
                   <ShieldCheck className="h-5 w-5 text-primary" />

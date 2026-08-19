@@ -222,12 +222,12 @@ export function ChatMessageStream({ messages, siteId, isLoading, onApplyAction, 
                   <div className="text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between flex-wrap gap-1">
                     <span className="truncate max-w-[200px]">{msg.proposalDraft.pageTitle}</span>
                     <a
-                      href={msg.site?.url ? `${msg.site.url.replace(/\/$/, "")}${msg.proposalDraft.affectedUrl}` : "#"}
+                      href={msg.site?.url ? `${msg.site.url.replace(/\/$/, "")}${msg.proposalDraft.affectedUrl || ""}` : "#"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-normal break-all"
                     >
-                      {msg.proposalDraft.affectedUrl} <ExternalLink className="h-3 w-3 shrink-0" />
+                      {msg.proposalDraft.affectedUrl || "/"} <ExternalLink className="h-3 w-3 shrink-0" />
                     </a>
                   </div>
                 </div>
@@ -238,7 +238,9 @@ export function ChatMessageStream({ messages, siteId, isLoading, onApplyAction, 
                     {msg.proposalDraft.fieldLabel}
                   </div>
                   <div className="p-3 bg-slate-50 dark:bg-[#181818] border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs text-slate-800 dark:text-slate-200 max-h-48 overflow-y-auto overflow-x-hidden break-all whitespace-pre-wrap scrollbar-none">
-                    {msg.proposalDraft.suggestedValue}
+                    {typeof msg.proposalDraft.suggestedValue === "object"
+                      ? JSON.stringify(msg.proposalDraft.suggestedValue, null, 2)
+                      : msg.proposalDraft.suggestedValue}
                   </div>
                 </div>
 

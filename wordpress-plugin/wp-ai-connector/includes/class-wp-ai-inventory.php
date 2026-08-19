@@ -114,11 +114,18 @@ class WP_AI_Inventory {
         $auditing_plugins = $this->get_auditing_plugins_inventory();
 
         // Site-level SEO configuration anomalies
+        $logo_id = get_theme_mod('custom_logo');
+        $logo_url = $logo_id ? wp_get_attachment_url($logo_id) : '';
         $site_settings = array(
             'blog_public'              => intval(get_option('blog_public', 1)),
             'active_seo_provider'      => $active_seo_provider_name,
             'active_seo_plugins'       => $active_seo_plugins_list,
             'active_seo_plugins_count' => count($active_seo_plugins_list),
+            'show_on_front'            => get_option('show_on_front', 'posts'),
+            'page_on_front'            => intval(get_option('page_on_front', 0)),
+            'custom_logo_id'           => intval($logo_id),
+            'custom_logo_url'          => $logo_url,
+            'test_sync'                => 'hello',
         );
 
         // Assemble Inventory Context for Modular Audit Engine
@@ -726,6 +733,7 @@ class WP_AI_Inventory {
             'author'         => $theme->get('Author'),
             'is_child_theme' => !empty($parent),
             'parent_theme'   => $parent ? $parent->get('Name') : null,
+            'is_block_theme' => (function_exists('wp_is_block_theme') && wp_is_block_theme()),
             'theme_supports' => array(
                 'responsive_embeds' => current_theme_supports('responsive-embeds'),
                 'align_wide'        => current_theme_supports('align-wide'),

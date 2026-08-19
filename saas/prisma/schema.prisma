@@ -92,6 +92,7 @@ model WordPressSite {
   proposals  ActionProposal[]
   actionLogs ActionLogItem[]
   audits     SiteAuditSummary[]
+  memories   SiteMemory[]
 
   @@map("wordpress_sites")
 }
@@ -185,3 +186,17 @@ model AuditIssue {
 
   @@map("audit_issues")
 }
+
+model SiteMemory {
+  id        String   @id @default(cuid())
+  siteId    String
+  key       String   // e.g. "search_console_error", "site_summary", "past_fix_context"
+  value     String   // text/json content
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site WordPressSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("site_memories")
+}
+
