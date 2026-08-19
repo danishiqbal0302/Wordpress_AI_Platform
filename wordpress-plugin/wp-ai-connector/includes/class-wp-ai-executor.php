@@ -350,6 +350,204 @@ class WP_AI_Executor {
             ));
         }
 
+        if ($action_type === 'install_custom_theme') {
+            $theme_slug = isset($proposed_values['theme_slug']) ? sanitize_key($proposed_values['theme_slug']) : '';
+            $theme_name = isset($proposed_values['theme_name']) ? sanitize_text_field($proposed_values['theme_name']) : '';
+            $theme_json = isset($proposed_values['theme_json']) ? $proposed_values['theme_json'] : '';
+            $style_css  = isset($proposed_values['style_css']) ? $proposed_values['style_css'] : '';
+            $templates  = isset($proposed_values['templates']) ? $proposed_values['templates'] : array();
+            $parts      = isset($proposed_values['parts']) ? $proposed_values['parts'] : array();
+
+            // 1. Theme Slug Security Validation
+            if (empty($theme_slug) || !preg_match('/^[a-z0-9\-]+$/', $theme_slug)) {
+                return new WP_Error('rest_invalid_theme_slug', 'Theme slug must be lowercase alphanumeric and hyphens only.', array('status' => 400));
+            }
+            if (empty($theme_name)) {
+                return new WP_Error('rest_invalid_theme_name', 'Theme name is required.', array('status' => 400));
+            }
+
+            // 2. Payload size & file count constraints
+            $max_files = 20;
+            $max_file_size = 500 * 1024; // 500KB
+            $max_total_size = 2 * 1024 * 1024; // 2MB
+
+            $file_count = 2 + count($templates) + count($parts);
+            if ($file_count > $max_files) {
+                return new WP_Error('rest_too_many_files', 'Package exceeds maximum files limit.', array('status' => 400));
+            }
+
+            $total_size = strlen($theme_json) + strlen($style_css);
+            foreach ($templates as $c) { $total_size += strlen($c); }
+            foreach ($parts as $c) { $total_size += strlen($c); }
+
+            if ($total_size > $max_total_size) {
+                return new WP_Error('rest_package_oversized', 'Total theme package size exceeds 2MB.', array('status' => 400));
+            }
+            if (strlen($theme_json) > $max_file_size || strlen($style_css) > $max_file_size) {
+                return new WP_Error('rest_file_oversized', 'Individual theme file size exceeds 500KB.', array('status' => 400));
+            }
+            foreach ($templates as $c) {
+                if (strlen($c) > $max_file_size) {
+                    return new WP_Error('rest_file_oversized', 'Individual template file size exceeds 500KB.', array('status' => 400));
+                }
+            }
+            foreach ($parts as $c) {
+                if (strlen($c) > $max_file_size) {
+                    return new WP_Error('rest_file_oversized', 'Individual template part file size exceeds 500KB.', array('status' => 400));
+                }
+            }
+
+            // 3. Absolute path & path traversal break guards
+            $theme_root = get_theme_root();
+            $dest_dir   = $theme_root . '/' . $theme_slug;
+
+            if (file_exists($dest_dir)) {
+                $real_dest = realpath($dest_dir);
+                $real_root = realpath($theme_root);
+                if ($real_dest && strpos($real_dest, $real_root) !== 0) {
+                    return new WP_Error('rest_path_traversal', 'Path traversal attempt detected.', array('status' => 400));
+                }
+            }
+
+            // Create target folder securely
+            if (!file_exists($dest_dir)) {
+                if (!wp_mkdir_p($dest_dir)) {
+                    return new WP_Error('rest_theme_dir_failed', 'Failed to create theme directory.', array('status' => 500));
+                }
+            }
+
+            // 4. File-type integrity & write validations
+            // Write style.css
+            $style_content = "/*\nTheme Name: " . $theme_name . "\nTheme URI: https://wordpress-ai-platform.com\nDescription: Custom premium AI generated block theme.\nVersion: 1.0.0\nAuthor: WordPress AI Platform\nLicense: GNU General Public License v2 or later\nText Domain: " . $theme_slug . "\n*/\n" . $style_css;
+            if (file_put_contents($dest_dir . '/style.css', $style_content) === false) {
+                return new WP_Error('rest_style_write_failed', 'Failed to write style.css file.', array('status' => 500));
+            }
+
+            // Write theme.json (syntax check)
+            if (!empty($theme_json)) {
+                if (is_array($theme_json) || is_object($theme_json)) {
+                    $theme_json_str = json_encode($theme_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                } else {
+                    $theme_json_str = $theme_json;
+                    $decoded = json_decode($theme_json_str, true);
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        return new WP_Error('rest_invalid_theme_json_syntax', 'Invalid theme.json syntax.', array('status' => 400));
+                    }
+                }
+                if (file_put_contents($dest_dir . '/theme.json', $theme_json_str) === false) {
+                    return new WP_Error('rest_theme_json_write_failed', 'Failed to write theme.json file.', array('status' => 500));
+                }
+            }
+
+            // Write Templates
+            if (!empty($templates) && is_array($templates)) {
+                $templates_dir = $dest_dir . '/templates';
+                if (!file_exists($templates_dir)) {
+                    wp_mkdir_p($templates_dir);
+                }
+                foreach ($templates as $file_name => $content) {
+                    $clean_file = sanitize_file_name($file_name);
+                    if (empty($clean_file) || !preg_match('/^[a-z0-9\-]+\.html$/', $clean_file)) {
+                        return new WP_Error('rest_invalid_template_name', 'Invalid template file name: ' . $file_name, array('status' => 400));
+                    }
+                    if (file_put_contents($templates_dir . '/' . $clean_file, $content) === false) {
+                        return new WP_Error('rest_template_write_failed', 'Failed to write template ' . $clean_file, array('status' => 500));
+                    }
+                }
+            }
+
+            // Write Parts
+            if (!empty($parts) && is_array($parts)) {
+                $parts_dir = $dest_dir . '/parts';
+                if (!file_exists($parts_dir)) {
+                    wp_mkdir_p($parts_dir);
+                }
+                foreach ($parts as $file_name => $content) {
+                    $clean_file = sanitize_file_name($file_name);
+                    if (empty($clean_file) || !preg_match('/^[a-z0-9\-]+\.html$/', $clean_file)) {
+                        return new WP_Error('rest_invalid_part_name', 'Invalid template part file name: ' . $file_name, array('status' => 400));
+                    }
+                    if (file_put_contents($parts_dir . '/' . $clean_file, $content) === false) {
+                        return new WP_Error('rest_part_write_failed', 'Failed to write template part ' . $clean_file, array('status' => 500));
+                    }
+                }
+            }
+
+            // 5. Audit active theme parameters before switch
+            $prev_theme = wp_get_theme();
+            $active_theme_before_build = array(
+                'name'           => $prev_theme->get('Name'),
+                'stylesheet'     => $prev_theme->get_stylesheet(),
+                'template'       => $prev_theme->get_template(),
+                'version'        => $prev_theme->get('Version'),
+                'is_block_theme' => (function_exists('wp_is_block_theme') && wp_is_block_theme())
+            );
+
+            // Switch/Activate the custom theme
+            switch_theme($theme_slug);
+
+            // 6. Live environment verification checks
+            $current_theme = wp_get_theme();
+            $activated_slug = $current_theme->get_stylesheet();
+            
+            $activated_ok = ($activated_slug === $theme_slug);
+            $theme_json_ok = file_exists($dest_dir . '/theme.json');
+            $style_css_ok  = file_exists($dest_dir . '/style.css');
+
+            $required_files = array(
+                'templates/front-page.html',
+                'templates/page.html',
+                'templates/index.html',
+                'templates/single.html',
+                'templates/404.html',
+                'parts/header.html',
+                'parts/footer.html'
+            );
+
+            $required_files_ok = true;
+            foreach ($required_files as $f) {
+                if (!file_exists($dest_dir . '/' . $f)) {
+                    $required_files_ok = false;
+                    break;
+                }
+            }
+
+            $is_block_theme_ok = (function_exists('wp_is_block_theme') && wp_is_block_theme());
+
+            if (!$activated_ok || !$theme_json_ok || !$style_css_ok || !$required_files_ok || !$is_block_theme_ok) {
+                // Rollback atomically
+                switch_theme($active_theme_before_build['stylesheet']);
+                
+                $reasons = array();
+                if (!$activated_ok) $reasons[] = "Activated slug mismatch (Expected: $theme_slug, Got: $activated_slug)";
+                if (!$theme_json_ok) $reasons[] = "theme.json is missing";
+                if (!$style_css_ok) $reasons[] = "style.css is missing";
+                if (!$required_files_ok) $reasons[] = "One or more required templates/parts are missing";
+                if (!$is_block_theme_ok) $reasons[] = "Active theme is not recognized as a block theme";
+
+                return new WP_Error('rest_theme_verification_failed', 'Theme verification failed: ' . implode(', ', $reasons) . '. Restored previous theme: ' . $active_theme_before_build['stylesheet'], array('status' => 500));
+            }
+
+            $active_theme_after_build = array(
+                'name'           => $current_theme->get('Name'),
+                'stylesheet'     => $current_theme->get_stylesheet(),
+                'template'       => $current_theme->get_template(),
+                'version'        => $current_theme->get('Version'),
+                'is_block_theme' => $is_block_theme_ok
+            );
+
+            return rest_ensure_response(array(
+                'execution_state'           => 'SUCCEEDED',
+                'theme_slug'                => $theme_slug,
+                'theme_name'                => $theme_name,
+                'active_theme_before_build' => $active_theme_before_build,
+                'active_theme_after_build'  => $active_theme_after_build,
+                'action_type'               => $action_type,
+                'verificationStatus'        => 'VERIFIED_EXACT_MATCH',
+                'executedAt'                => time(),
+            ));
+        }
+
         // 2. Normal Single-Post Modification Checks
         if ($post_id <= 0 || empty($target_checksum)) {
             return new WP_Error(
