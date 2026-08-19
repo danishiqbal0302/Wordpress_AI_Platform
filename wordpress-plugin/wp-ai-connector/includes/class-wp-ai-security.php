@@ -39,7 +39,7 @@ class WP_AI_Security {
         $log_data .= "HMAC Secret: " . $hmac_secret . "\n";
         $log_data .= "Payload to sign: " . $payload_to_sign . "\n";
         $log_data .= "Raw Body: " . $raw_body . "\n";
-        @file_put_contents(ABSPATH . 'wp-ai-headers.log', $log_data, FILE_APPEND);
+        @file_put_contents(ABSPATH . 'wp-ai-headers.txt', $log_data, FILE_APPEND);
 
         // 1. API Key Fallback Authentication
         $stored_api_key = get_option('wp_ai_api_key');
