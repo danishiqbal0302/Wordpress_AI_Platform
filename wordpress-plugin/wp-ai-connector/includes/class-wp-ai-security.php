@@ -11,6 +11,11 @@ class WP_AI_Security {
      * @return true|WP_Error
      */
     public static function verify_request(WP_REST_Request $request) {
+        $headers = $request->get_headers();
+        $log_data = "Request Headers: " . print_r($headers, true) . "\n";
+        $log_data .= "Method: " . $request->get_method() . "\n";
+        @file_put_contents(WP_CONTENT_DIR . '/uploads/wp-ai-headers.log', $log_data, FILE_APPEND);
+
         $received_signature = $request->get_header('X-WP-AI-Signature');
         $received_timestamp = $request->get_header('X-WP-AI-Timestamp');
         $api_key_header     = $request->get_header('X-WP-AI-API-Key');
