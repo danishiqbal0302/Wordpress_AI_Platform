@@ -1979,81 +1979,388 @@ ${childrenHtml}
     }
 
     else if (genState && genState.current_milestone === 9) {
-      genState.status = "EXECUTING";
-      genState.started_at = new Date().toISOString();
+      if (genState.status === "PLANNED" || genState.status === "FAILED") {
+        genState.status = "EXECUTING";
+        genState.started_at = new Date().toISOString();
 
-      const pageOnFrontId = parseInt(siteSettings.page_on_front || "0");
-      let homepagePost = sitePages.find((p: any) => p.id === pageOnFrontId || p.slug === "home" || p.slug === "homepage" || p.title === "Home");
-
-      if (!homepagePost) {
-        genState.status = "FAILED";
-        genState.last_error = "Validation failed: Homepage page ID not found in page inventory.";
-      } else {
-        const homepageId = homepagePost.id;
         try {
-          const setFrontPageRes = await fetch(`${site.url}/wp-json/wp-ai/v1/execute`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${site.apiKey}`
-            },
-            body: JSON.stringify({
-              action_type: "set_front_page",
-              proposed_values: {
-                page_id: homepageId
-              }
-            })
+          const invRes = await fetch(`${site.url}/wp-json/wp-ai/v1/inventory`, {
+            headers: { Authorization: `Bearer ${site.apiKey}` }
+          });
+          const healthRes = await fetch(`${site.url}/wp-json/wp-ai/v1/health`, {
+            headers: { Authorization: `Bearer ${site.apiKey}` }
           });
 
-          if (setFrontPageRes.ok) {
-            const freshInventoryRes = await fetch(`${site.url}/wp-json/wp-ai/v1/inventory`, {
-              headers: { Authorization: `Bearer ${site.apiKey}` }
-            });
-            if (freshInventoryRes.ok) {
-              const freshInventory = await freshInventoryRes.json();
-              const freshSettings = freshInventory.site_settings || {};
+          if (invRes.ok) {
+            const inventory = await invRes.json();
+            const health = healthRes.ok ? await healthRes.json() : {};
 
-              if (freshSettings.show_on_front === "page" && parseInt(freshSettings.page_on_front || "0") === homepageId) {
-                genState.status = "PASSED";
-                genState.completed_at = new Date().toISOString();
-                genState.verification_result = "SUCCESS";
+            const wpVersion = health.wp_version || "6.5.0";
+            const activeThemeInfo = inventory.active_theme || {};
+            const isBlockTheme = !!activeThemeInfo.is_block_theme;
+            const activeThemeName = activeThemeInfo.name || "Default Theme";
+            const activeThemeVersion = activeThemeInfo.version || "1.0.0";
+            const installedThemes = (inventory.installed_themes || []).map((t: any) => t.name || t);
+            const activePlugins = (inventory.active_plugins || []).map((p: any) => p.file || p);
+            
+            // Page Builders Detection
+            const pageBuilders: string[] = [];
+            if (activePlugins.some((p: string) => p.includes("elementor"))) pageBuilders.push("Elementor");
+            if (activePlugins.some((p: string) => p.includes("divi"))) pageBuilders.push("Divi");
+            if (isBlockTheme) pageBuilders.push("Gutenberg FSE");
+            if (pageBuilders.length === 0) pageBuilders.push("Gutenberg");
 
-                genState.current_milestone = 10;
-                genState.status = "PLANNED";
-                genState.started_at = null;
-                genState.completed_at = null;
-                genState.attempt = 0;
+            const pages = inventory.pages || [];
+            const posts = inventory.posts || [];
+            const mediaCount = inventory.media_inventory?.total_count || 0;
+            const isWooCommerceActive = activePlugins.some((p: string) => p.includes("woocommerce"));
+            const seoPlugin = inventory.site_settings?.active_seo_provider || "None / Core";
 
-                const currentMemory = await prisma.siteMemory.findFirst({
-                  where: { siteId: site.id, key: "site_generation_state" },
-                });
-                if (currentMemory) {
-                  await prisma.siteMemory.update({
-                    where: { id: currentMemory.id },
-                    data: { value: JSON.stringify(genState) },
-                  });
-                }
+            const siteSettings = inventory.site_settings || {};
+            const customHomepage = siteSettings.show_on_front === "page" && siteSettings.page_on_front > 0;
+            const customNavigation = inventory.navigation_menus?.menus?.length > 0;
 
-                customMilestoneMessage = `✨ **Milestone 9 — Configure Real Root Homepage [PASSED]** ✨\n\nI have successfully set the static front page settings on your connected WordPress site:\n\n**Reading Settings Configurations**:\n* **show_on_front**: \`page\` (**\`PASS\`**)\n* **page_on_front**: ID #${homepageId} ("Home") (**\`PASS\`**)\n\n---\n\nLet's move to **Milestone 10 — Header, Navigation, and Footer Template Parts**.\n\nType **continue** or **agree** to build the global header, custom navigation menu, and footer layouts!`;
+            // Signal calculations
+            const themeIsDefault = activeThemeName.toLowerCase().includes("twenty") || activeThemeName.toLowerCase().includes("default");
+            
+            // Generic meaningful content detector parameters (Correction 2)
+            const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+            const phoneRegex = /\+?[0-9][0-9\-\s\(\)]{7,20}/;
+            const addressKeywords = ["street", "st.", "road", "rd.", "ave", "avenue", "lane", "ln.", "city", "state", "postal", "zip", "suite", "floor", "building", "address", "located"];
+
+            let hasEmail = false;
+            let hasPhone = false;
+            let hasAddress = false;
+            let hasInternalLinks = false;
+
+            const meaningfulPages = pages.filter((p: any) => {
+              const titleLower = (p.title || "").toLowerCase();
+              const contentLower = (p.raw_content || p.content || "").toLowerCase();
+              
+              if (emailRegex.test(contentLower)) hasEmail = true;
+              if (phoneRegex.test(contentLower)) hasPhone = true;
+              if (addressKeywords.some(kw => contentLower.includes(kw))) hasAddress = true;
+              if (contentLower.includes("href=\"/") || contentLower.includes("href='\/")) hasInternalLinks = true;
+
+              const isSampleName = titleLower.includes("sample") || titleLower.includes("privacy policy") || titleLower.includes("hello");
+              const isEmpty = !contentLower.trim();
+              const isSampleText = contentLower.includes("welcome to wordpress") || contentLower.includes("this is an example page") || contentLower.includes("lorem ipsum");
+              return !isSampleName && !isEmpty && !isSampleText;
+            }).length;
+
+            const meaningfulPosts = posts.filter((p: any) => {
+              const titleLower = (p.title || "").toLowerCase();
+              const contentLower = (p.raw_content || p.content || "").toLowerCase();
+              
+              if (emailRegex.test(contentLower)) hasEmail = true;
+              if (phoneRegex.test(contentLower)) hasPhone = true;
+              if (addressKeywords.some(kw => contentLower.includes(kw))) hasAddress = true;
+
+              const isSampleName = titleLower.includes("hello world");
+              const isEmpty = !contentLower.trim();
+              const isSampleText = contentLower.includes("welcome to wordpress") || contentLower.includes("lorem ipsum");
+              return !isSampleName && !isEmpty && !isSampleText;
+            }).length;
+
+            const contactInfoDetected = hasEmail || hasPhone || hasAddress;
+            const meaningfulMedia = mediaCount;
+            
+            const siteTitle = siteSettings.site_title || "";
+            const meaningfulSiteTitle = siteTitle.trim().length > 0 && !siteTitle.toLowerCase().includes("my wordpress site") && !siteTitle.toLowerCase().includes("just another wordpress site");
+
+            // Content scans
+            let businessContentDetected = false;
+            let defaultSampleContentDetected = false;
+            
+            const bizKeywords = ["service", "pricing", "contact", "about us", "dentist", "cleaning", "business", "appointment", "clinic", "company"];
+            const sampleKeywords = ["welcome to wordpress", "this is an example page", "lorem ipsum", "comment form"];
+
+            const allTexts = [...pages, ...posts].map((p: any) => (p.raw_content || p.content || "") + " " + (p.title || "")).join(" ").toLowerCase();
+            
+            if (bizKeywords.some(kw => allTexts.includes(kw))) businessContentDetected = true;
+            if (sampleKeywords.some(kw => allTexts.includes(kw))) defaultSampleContentDetected = true;
+
+            // Strong existing safety guards (Correction 1)
+            const fresh_disqualification_signals = {
+              custom_homepage: customHomepage,
+              custom_navigation: customNavigation,
+              meaningful_pages: meaningfulPages >= 2,
+              meaningful_business_content: businessContentDetected,
+              meaningful_contact_information: contactInfoDetected
+            };
+
+            const disallowedReasons: string[] = [];
+            if (fresh_disqualification_signals.custom_homepage) disallowedReasons.push("FRESH classification disallowed because a custom static homepage was detected.");
+            if (fresh_disqualification_signals.custom_navigation) disallowedReasons.push("FRESH classification disallowed because custom navigation menu(s) were detected.");
+            if (fresh_disqualification_signals.meaningful_pages) disallowedReasons.push("FRESH classification disallowed because multiple meaningful pages were detected.");
+            if (fresh_disqualification_signals.meaningful_business_content) disallowedReasons.push("FRESH classification disallowed because custom business keywords were found.");
+            if (fresh_disqualification_signals.meaningful_contact_information) disallowedReasons.push("FRESH classification disallowed because contact/location details were found.");
+
+            const disallowedFresh = disallowedReasons.length > 0;
+
+            // Weighted Scoring Engine (No artificial capping)
+            let score = 0;
+            const reasons = [...disallowedReasons];
+
+            if (customHomepage) {
+              score += 15;
+              reasons.push("Custom static homepage is configured (+15 pts)");
+            }
+            if (customNavigation) {
+              score += 15;
+              reasons.push("Custom navigation menu(s) detected (+15 pts)");
+            }
+            if (meaningfulPages >= 3) {
+              score += 20;
+              reasons.push(`Found ${meaningfulPages} meaningful custom pages (+20 pts)`);
+            } else if (meaningfulPages > 0) {
+              score += 10;
+              reasons.push(`Found ${meaningfulPages} custom pages (+10 pts)`);
+            }
+            if (meaningfulPosts >= 2) {
+              score += 10;
+              reasons.push(`Found ${meaningfulPosts} meaningful custom posts (+10 pts)`);
+            }
+            if (meaningfulMedia >= 3) {
+              score += 15;
+              reasons.push(`Found ${meaningfulMedia} user media uploads (+15 pts)`);
+            } else if (meaningfulMedia > 0) {
+              score += 5;
+              reasons.push(`Found ${meaningfulMedia} media uploads (+5 pts)`);
+            }
+            if (meaningfulSiteTitle) {
+              score += 10;
+              reasons.push("Custom site title configured (+10 pts)");
+            }
+            if (businessContentDetected) {
+              score += 15;
+              reasons.push("Business-related content patterns detected (+15 pts)");
+            }
+            if (contactInfoDetected) {
+              score += 15;
+              reasons.push("Contact / address details detected (+15 pts)");
+            }
+            if (hasInternalLinks) {
+              score += 10;
+              reasons.push("Internal page linking patterns detected (+10 pts)");
+            }
+            if (defaultSampleContentDetected) {
+              score -= 15;
+              reasons.push("WordPress default/sample content detected (-15 pts)");
+            }
+            if (themeIsDefault) {
+              score -= 10;
+              reasons.push("WordPress default theme is active (-10 pts)");
+            }
+
+            // Classification Type (with safety overrides)
+            let type: "FRESH" | "PARTIALLY_BUILT" | "EXISTING" = "PARTIALLY_BUILT";
+            let confidence = 0.5;
+
+            if (disallowedFresh) {
+              if (score >= 50) {
+                type = "EXISTING";
+                confidence = Math.max(0.6, Math.min(1.0, 0.5 + (score / 100)));
               } else {
-                genState.last_error = `Verification failed: show_on_front is '${freshSettings.show_on_front}' and page_on_front is '${freshSettings.page_on_front}'. Expected 'page' and '${homepageId}'.`;
+                type = "PARTIALLY_BUILT";
+                confidence = 0.5 + (0.2 * (1 - Math.abs(score - 30) / 30));
               }
             } else {
-              genState.last_error = "WordPress re-read verification failed: inventory query returned non-OK status.";
+              if (score >= 50) {
+                type = "EXISTING";
+                confidence = Math.max(0.6, Math.min(1.0, 0.5 + (score / 100)));
+              } else if (score <= 20) {
+                type = "FRESH";
+                confidence = Math.max(0.6, Math.min(1.0, 1.0 - (score / 40)));
+              } else {
+                type = "PARTIALLY_BUILT";
+                confidence = 0.5 + (0.2 * (1 - Math.abs(score - 30) / 30));
+              }
             }
+
+            let recommendation: "CURRENT_THEME" | "CUSTOM_PREMIUM" = "CURRENT_THEME";
+            let recReason = "";
+
+            if (type === "FRESH") {
+              recommendation = "CUSTOM_PREMIUM";
+              recReason = "Since your connected site is a fresh, blank installation with no pre-existing pages or customized content, a Custom Premium Design is highly recommended. This will allow us to create a tailored design system, color palette, responsive grids, and template parts optimized exactly for your business category.";
+            } else if (type === "EXISTING") {
+              if (isBlockTheme) {
+                recommendation = "CUSTOM_PREMIUM";
+                recReason = "An existing block-based WordPress website was detected. Because block themes natively support Full Site Editing (FSE) and custom global style variations, a Custom Premium build strategy will allow us to safely introduce bespoke page layouts and reusable block patterns without affecting your primary database content.";
+              } else {
+                recommendation = "CURRENT_THEME";
+                recReason = "An existing classic-layout website was detected. To maintain complete design consistency, protect pre-existing content safety, and respect your active classic theme's custom layouts and widgets, we recommend building within your Current Theme context.";
+              }
+            } else {
+              recommendation = "CURRENT_THEME";
+              recReason = "Your website appears partially built and contains some custom configurations. To prevent design conflicts and maintain absolute content safety, we recommend using the Current Theme build strategy to extend your existing structure.";
+            }
+
+            const advancedDiscovery = {
+              site_classification: {
+                type,
+                confidence: parseFloat(confidence.toFixed(2)),
+                reasons,
+                signals: {
+                  meaningful_pages: meaningfulPages,
+                  meaningful_posts: meaningfulPosts,
+                  meaningful_media: meaningfulMedia,
+                  custom_navigation: customNavigation,
+                  custom_homepage: customHomepage,
+                  meaningful_site_title: meaningfulSiteTitle,
+                  business_content_detected: businessContentDetected,
+                  default_sample_content_detected: defaultSampleContentDetected,
+                  theme_is_default: themeIsDefault
+                }
+              },
+              wordpress: {
+                version: wpVersion,
+                active_theme: {
+                  name: activeThemeName,
+                  version: activeThemeVersion,
+                  is_child_theme: !!inventory.active_theme?.is_child_theme,
+                  parent_theme: inventory.active_theme?.parent_theme || null
+                },
+                is_block_theme: isBlockTheme,
+                fse_capable: isBlockTheme,
+                page_builder: pageBuilders,
+                woocommerce: isWooCommerceActive,
+                seo_plugins: inventory.site_settings?.active_seo_plugins || [],
+                homepage: {
+                  show_on_front: siteSettings.show_on_front || "posts",
+                  page_on_front: siteSettings.page_on_front || 0
+                },
+                counts: {
+                  pages: pages.length,
+                  posts: posts.length,
+                  media: mediaCount
+                }
+              },
+              recommendation: {
+                mode: recommendation,
+                reason: recReason
+              }
+            };
+
+            genState.advancedDiscovery = advancedDiscovery;
+            genState.recommended_build_mode = recommendation;
+            genState.recommendation_reason = recReason;
+            genState.build_mode = null;
+            genState.build_mode_status = "AWAITING_SELECTION";
+            genState.status = "AWAITING_INPUT";
+
+            const currentMemory = await prisma.siteMemory.findFirst({
+              where: { siteId: site.id, key: "site_generation_state" },
+            });
+            if (currentMemory) {
+              await prisma.siteMemory.update({
+                where: { id: currentMemory.id },
+                data: { value: JSON.stringify(genState) },
+              });
+            }
+
+            customMilestoneMessage = `🔍 **Milestone 9 — Advanced Website Discovery & Build Mode** 🔍
+
+I have completed a deep inspection of your connected WordPress environment. Here are the findings:
+
+### 🖥️ Website Intelligence Report:
+* **WordPress Version**: \`${wpVersion}\`
+* **Active Theme**: \`${activeThemeName}\` (v${activeThemeVersion}) — *${isBlockTheme ? "Block (FSE) Theme" : "Classic Theme"}*
+* **Page Builders Active**: \`${pageBuilders.join(", ")}\`
+* **Sitemap Summary**: \`${pages.length}\` pages detected, \`${posts.length}\` posts detected, \`${mediaCount}\` media items
+* **E-Commerce Status**: \`${isWooCommerceActive ? "WooCommerce Active" : "No active shop detected"}\`
+* **SEO Provider Active**: \`${seoPlugin}\`
+* **Detected Site Classification**: **\`${type}\`** (Confidence: \`${parseFloat(confidence.toFixed(2))}\`)
+
+### 🛡️ Safety Classification Reasons:
+${reasons.map(r => `* ${r}`).join("\n")}
+
+---
+
+### 🎨 Build Strategy Selection:
+Based on the website discovery, you have two ways to generate your pages:
+
+* **[OPTION A] Build using Current Theme (\`CURRENT_THEME\`)**
+  We will fully respect your active theme styles, typography, templates, and layouts. Safe for live/existing sites.
+* **[OPTION B] Build a Custom Premium Design (\`CUSTOM_PREMIUM\`)**
+  We will create a custom design system, spacing scales, grid overrides, and templates specifically for your project. Recommended for fresh installations.
+
+👉 **AI Recommendation**: **\`${recommendation}\`**
+*Reason*: ${recReason}
+
+---
+
+**Please select a Build Mode to proceed.** Reply with either **Option A (Current Theme)** or **Option B (Custom Premium)**!`;
           } else {
-            const errText = await setFrontPageRes.text().catch(() => "");
-            genState.last_error = `WordPress REST execution call failed with HTTP ${setFrontPageRes.status}: ${errText}`;
+            genState.status = "FAILED";
+            genState.last_error = "Failed to fetch WordPress inventory data for discovery.";
           }
-        } catch (execErr: any) {
-          console.warn("WordPress set_front_page execution exception:", execErr);
-          genState.last_error = `WordPress connector network exception: ${execErr.message}`;
+        } catch (err: any) {
+          genState.status = "FAILED";
+          genState.last_error = `Advanced discovery connection error: ${err.message}`;
+        }
+      } 
+      else if (genState.status === "AWAITING_INPUT") {
+        const choice = (cleanPrompt || "").toLowerCase().trim();
+        let selectedMode = "";
+
+        const currentThemeKeywords = [
+          "option a", "a", "current theme", "use current theme", 
+          "active theme", "existing theme", "current_theme"
+        ];
+        const customPremiumKeywords = [
+          "option b", "b", "custom", "custom premium", 
+          "custom_premium", "premium design", "create custom theme"
+        ];
+
+        if (currentThemeKeywords.some(kw => choice === kw || choice === kw.replace(/\s+/g, "_"))) {
+          selectedMode = "CURRENT_THEME";
+        } else if (customPremiumKeywords.some(kw => choice === kw || choice === kw.replace(/\s+/g, "_"))) {
+          selectedMode = "CUSTOM_PREMIUM";
+        }
+
+        if (selectedMode) {
+          genState.build_mode = selectedMode;
+          genState.build_mode_status = "SELECTED";
+          genState.status = "PASSED";
+          genState.completed_at = new Date().toISOString();
+          genState.verification_result = "SUCCESS";
+
+          genState.current_milestone = 10;
+          genState.status = "PLANNED";
+          genState.started_at = null;
+          genState.completed_at = null;
+          genState.attempt = 0;
+
+          const currentMemory = await prisma.siteMemory.findFirst({
+            where: { siteId: site.id, key: "site_generation_state" },
+          });
+          if (currentMemory) {
+            await prisma.siteMemory.update({
+              where: { id: currentMemory.id },
+              data: { value: JSON.stringify(genState) },
+            });
+          }
+
+          customMilestoneMessage = `✨ **Milestone 9 — Advanced Website Discovery & Build Mode [PASSED]** ✨
+
+Successfully selected and persisted build mode strategy:
+
+* **Selected Build Mode**: \`${selectedMode}\`
+* **Discovery Object**: Persisted safely in database state memory.
+
+---\n\nLet's move to **Milestone 10 — Header, Navigation, and Footer Template Parts [PLANNED]**.\n\nType **continue** or **agree** to initiate layout rendering systems!`;
+        } else {
+          customMilestoneMessage = `⚠️ **Invalid or ambiguous build mode choice.**
+
+Please reply with either:
+* **Option A** to build using the **Current Theme** (\`CURRENT_THEME\`)
+* **Option B** to build a **Custom Premium Design** (\`CUSTOM_PREMIUM\`)`;
         }
       }
 
-      if (!customMilestoneMessage) {
-        genState.status = "FAILED";
-        genState.last_error = genState.last_error || "Configure static front page settings update failed.";
+      if (!customMilestoneMessage && genState.status === "FAILED") {
         const currentMemory = await prisma.siteMemory.findFirst({
           where: { siteId: site.id, key: "site_generation_state" },
         });
@@ -2063,7 +2370,9 @@ ${childrenHtml}
             data: { value: JSON.stringify(genState) },
           });
         }
-        customMilestoneMessage = `⚠️ **Milestone 9 — Configure Real Root Homepage [FAILED]** ⚠️\n\nFailed to configure static front page settings on your connected site. Error details: \`${genState.last_error || "Unknown exception"}\`. Please try again.`;
+        customMilestoneMessage = `⚠️ **Milestone 9 — Advanced Website Discovery [FAILED]** ⚠️
+
+Failed to run website discovery. Error details: \`${genState.last_error || "Unknown exception"}\`. Please try again.`;
       }
     }
 
