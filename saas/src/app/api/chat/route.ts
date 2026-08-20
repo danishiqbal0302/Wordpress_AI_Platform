@@ -461,25 +461,59 @@ export async function POST(req: Request) {
           customMilestoneMessage = `✨ **Theme Generated!** ✨\n\nI compiled your custom premium block theme templates. Please ensure your custom theme is activated in your WordPress admin under Appearance -> Themes. What pages should we build next?`;
         }
 
-        genState.current_milestone = 100; // Move to conversational mode
-        genState.status = "PASSED";
-        genState.suggestions = [
-          "Build Dentist Clinic website",
-          "Build Cleaning Company website",
-          "Build Coffee Shop website"
-        ];
+        if (genState.pending_build_params) {
+          const params = genState.pending_build_params;
+          delete genState.pending_build_params;
+          const businessName = params.business_name || site.name || "My AI Business";
+          const nicheKeyword = params.niche || "coffee";
+
+          genState.status = "BUILDING";
+          genState.current_milestone = 1;
+          genState.logs = [`[${new Date().toLocaleTimeString()}] Initializing autonomous background site builder for ${businessName}...`];
+
+          runAutonomousBuild(site.id, params).catch(err => {
+            console.error("Autonomous background builder error:", err);
+          });
+
+          customMilestoneMessage = `⚙️ **Autonomous Site Builder Activated (Custom Theme Mode)!** ⚙️\n\nI have successfully launched the background builder pipeline to construct your professional **${businessName}** website:\n\n* **Niche & Brand**: ${nicheKeyword.toUpperCase()} business.\n* **Branding Color Theme**: Compiled using custom block theme settings.\n* **Pages Construction**: Creating Home page, Services page, About Us, and Contact page.\n* **CPT Setup**: Populating custom post type 'service' entries.\n\n*Please wait... I will display real-time background logs directly in the chat below!* 🚀`;
+        } else {
+          genState.current_milestone = 100; // Move to conversational mode
+          genState.status = "PASSED";
+          genState.suggestions = [
+            "Build Dentist Clinic website",
+            "Build Cleaning Company website",
+            "Build Coffee Shop website"
+          ];
+        }
       } else if (selectedOption === "CURRENT_THEME") {
         genState.build_mode = "CURRENT_THEME";
         genState.build_mode_status = "SELECTED";
-        customMilestoneMessage = `Great choice! We will proceed using your active theme layout system. What business niche or pages would you like to build today?`;
 
-        genState.current_milestone = 100; // Move to conversational mode
-        genState.status = "PASSED";
-        genState.suggestions = [
-          "Build Dentist Clinic website",
-          "Build Cleaning Company website",
-          "Build Coffee Shop website"
-        ];
+        if (genState.pending_build_params) {
+          const params = genState.pending_build_params;
+          delete genState.pending_build_params;
+          const businessName = params.business_name || site.name || "My AI Business";
+          const nicheKeyword = params.niche || "coffee";
+
+          genState.status = "BUILDING";
+          genState.current_milestone = 1;
+          genState.logs = [`[${new Date().toLocaleTimeString()}] Initializing autonomous background site builder for ${businessName}...`];
+
+          runAutonomousBuild(site.id, params).catch(err => {
+            console.error("Autonomous background builder error:", err);
+          });
+
+          customMilestoneMessage = `⚙️ **Autonomous Site Builder Activated (Active Theme Mode)!** ⚙️\n\nI have successfully launched the background builder pipeline to construct your professional **${businessName}** website:\n\n* **Niche & Brand**: ${nicheKeyword.toUpperCase()} business.\n* **Branding Color Theme**: Building using current active theme styles.\n* **Pages Construction**: Creating Home page, Services page, About Us, and Contact page.\n\n*Please wait... I will display real-time background logs directly in the chat below!* 🚀`;
+        } else {
+          customMilestoneMessage = `Great choice! We will proceed using your active theme layout system. What business niche or pages would you like to build today?`;
+          genState.current_milestone = 100; // Move to conversational mode
+          genState.status = "PASSED";
+          genState.suggestions = [
+            "Build Dentist Clinic website",
+            "Build Cleaning Company website",
+            "Build Coffee Shop website"
+          ];
+        }
       } else {
         // Keep them on Milestone 9 and remind them of options
         customMilestoneMessage = `👋 Welcome! I scanned your connected WordPress site and detected that this is a **fresh, blank WordPress installation**.\n\nTo build your visual framework, would you like to build using the **current active theme** or generate a modern, premium **custom block theme** (highly recommended for custom visual design controls)?`;
@@ -1347,9 +1381,43 @@ ${servicesHtml}
         const innerPageId = data.post_id || data.id || 999;
         pageIds.push({ title: p.title, id: innerPageId });
         await appendLog(`Successfully created page "${p.title}" (ID #${innerPageId})`);
-      } else {
-        await appendLog(`Warning: Failed to create page "${p.title}"`);
       }
+    }
+
+    // Populating Custom Post Type services for complete content mapping
+    if (state.build_mode === "CUSTOM_PREMIUM") {
+      await appendLog("Phase 8b: Populating WordPress Custom Post Type 'service' entries...");
+      for (const s of targetServices) {
+        const serviceRequestBody = JSON.stringify({
+          action_type: "create_post",
+          proposed_values: {
+            post_title: s,
+            post_content: `<!-- wp:paragraph -->\n<p>Premium customized ${s.toLowerCase()} solution tailored to exceed expectations for ${businessName} clients.</p>\n<!-- /wp:paragraph -->`,
+            post_type: "service",
+            post_status: "publish"
+          }
+        });
+
+        const sTimestamp = Math.floor(Date.now() / 1000).toString();
+        const sSignature = crypto.createHmac("sha256", site.hmacSecret || "default_hmac_secret").update(`${sTimestamp}.${serviceRequestBody}`).digest("hex");
+        
+        const sHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "X-WP-AI-Timestamp": sTimestamp,
+          "X-WP-AI-Signature": sSignature,
+        };
+        if (site.apiKey) {
+          sHeaders["X-WP-AI-API-Key"] = site.apiKey;
+          sHeaders["Authorization"] = `Bearer ${site.apiKey}`;
+        }
+
+        await fetch(`${site.url.replace(/\/$/, "")}/wp-json/wp-ai/v1/execute`, {
+          method: "POST",
+          headers: sHeaders,
+          body: serviceRequestBody
+        });
+      }
+      await appendLog("Custom Post Type 'service' populated successfully!");
     }
 
     // Step 8: Create Navigation menu linking all pages

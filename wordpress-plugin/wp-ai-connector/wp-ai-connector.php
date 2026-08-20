@@ -246,3 +246,23 @@ function wp_ai_render_admin_page() {
     </div>
     <?php
 }
+
+/**
+ * Register Custom Post Type: Service (accessible via Gutenberg and REST API)
+ */
+add_action('init', function() {
+    register_post_type('service', array(
+        'labels'      => array(
+            'name'          => __('Services', 'wp-ai-connector'),
+            'singular_name' => __('Service', 'wp-ai-connector'),
+            'add_new_item'  => __('Add New Service', 'wp-ai-connector'),
+            'edit_item'     => __('Edit Service', 'wp-ai-connector'),
+            'all_items'     => __('All Services', 'wp-ai-connector'),
+        ),
+        'public'      => true,
+        'has_archive' => true,
+        'show_in_rest'=> true, // enable Gutenberg and REST API accessibility
+        'supports'    => array('title', 'editor', 'thumbnail', 'excerpt'),
+        'menu_icon'   => 'dashicons-admin-tools',
+    ));
+});
