@@ -1201,8 +1201,8 @@ async function runAutonomousBuild(siteId: string, classifierObj: any) {
     const homepageRequestBody = JSON.stringify({
       action_type: "create_post",
       proposed_values: {
-        title: "Home",
-        content: sideloadedHomepageBlocks,
+        post_title: "Home",
+        post_content: sideloadedHomepageBlocks,
         post_type: "page",
         post_status: "publish"
       }
@@ -1316,8 +1316,8 @@ ${servicesHtml}
       const requestBody = JSON.stringify({
         action_type: "create_post",
         proposed_values: {
-          title: p.title,
-          content: sideloadedPageBlocks,
+          post_title: p.title,
+          post_content: sideloadedPageBlocks,
           post_type: "page",
           post_status: "publish"
         }
