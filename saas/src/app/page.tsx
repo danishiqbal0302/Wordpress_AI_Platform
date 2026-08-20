@@ -241,9 +241,63 @@ export default function ChatGPTPage() {
         proposalDraft: data.proposalDraft,
         site: data.site || activeSite,
         actionStatus: "idle",
+        suggestions: data.suggestions
       };
 
       setMessages((prev) => [...prev, aiMsg]);
+
+      if (data.generationState && data.generationState.status === "BUILDING") {
+        const progressMsgId = `progress-${Date.now()}`;
+        const progressMsg: ChatMessage = {
+          id: progressMsgId,
+          sender: "system",
+          text: "⚙️ **Autonomous Build Tasks Initiated...**\n```text\nInitializing background site builder...\n```",
+        };
+        setMessages((prev) => [...prev, progressMsg]);
+
+        const intervalId = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`/api/chat/status?siteId=${activeSite?.id}`);
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              
+              if (statusData.logs && statusData.logs.length > 0) {
+                const logsText = statusData.logs.join("\n");
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === progressMsgId
+                      ? {
+                          ...m,
+                          text: `🛠️ **Background Build Progress Logs:**\n\`\`\`text\n${logsText}\n\`\`\``,
+                        }
+                      : m
+                  )
+                );
+              }
+
+              if (statusData.status === "COMPLETED" || statusData.status === "FAILED") {
+                clearInterval(intervalId);
+                setIsLoading(false);
+
+                const finalMsg: ChatMessage = {
+                  id: `final-${Date.now()}`,
+                  sender: "ai",
+                  text: statusData.status === "COMPLETED"
+                    ? "🎉 **Autonomous site build completed successfully!** All pages, navigation menus, static front page settings, and stock media assets have been fully configured on your live WordPress site!"
+                    : `❌ **Autonomous build failed**: ${statusData.error || "An unexpected error occurred during page generation."}`,
+                  suggestions: statusData.suggestions || [
+                    "Check my website home page",
+                    "Configure my services list"
+                  ]
+                };
+                setMessages((prev) => [...prev, finalMsg]);
+              }
+            }
+          } catch (pollErr) {
+            console.error("Error polling build status:", pollErr);
+          }
+        }, 3000);
+      }
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
