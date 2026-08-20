@@ -45,47 +45,79 @@ interface ChatMessageStreamProps {
 function FormattedText({ content }: { content: string }) {
   if (!content) return null;
 
-  const lines = content.split("\n");
+  // Split by code blocks ```
+  const parts = content.split(/(```[a-z]*[\s\S]*?```)/g);
 
   return (
     <div className="space-y-2 text-sm leading-relaxed [overflow-wrap:anywhere] text-slate-800 dark:text-slate-200 overflow-hidden">
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={idx} className="h-1.5" />;
+      {parts.map((part, partIdx) => {
+        if (part.startsWith("```")) {
+          // Parse code block content
+          const match = part.match(/```([a-z]*)\n([\s\S]*?)```/);
+          const lang = match ? match[1] : "";
+          const code = match ? match[2] : part.slice(3, -3);
 
-        if (trimmed.startsWith("### ")) {
-          return (
-            <h3 key={idx} className="text-base font-bold text-slate-900 dark:text-white pt-2 pb-0.5 border-b border-slate-100 dark:border-slate-800/80 break-words">
-              {renderInlineStyles(trimmed.slice(4))}
-            </h3>
-          );
-        }
-        if (trimmed.startsWith("## ")) {
-          return (
-            <h2 key={idx} className="text-lg font-bold text-slate-900 dark:text-white pt-3 pb-1 break-words">
-              {renderInlineStyles(trimmed.slice(3))}
-            </h2>
-          );
-        }
-        if (trimmed.startsWith("# ")) {
-          return (
-            <h1 key={idx} className="text-xl font-bold text-slate-900 dark:text-white pt-3 pb-1 break-words">
-              {renderInlineStyles(trimmed.slice(2))}
-            </h1>
-          );
-        }
+          if (code.includes("<!-- wp:") || code.trim().startsWith("<!-- wp:")) {
+            return (
+              <div key={partIdx} className="my-3 p-3 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
+                  <Sparkles className="h-4 w-4 animate-pulse" />
+                </div>
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">📄 WordPress Gutenberg Layout Layout Generated & Mapped</span>
+              </div>
+            );
+          }
 
-        if (trimmed.startsWith("• ") || trimmed.startsWith("- ") || /^\d+\.\s/.test(trimmed)) {
-          const listText = trimmed.replace(/^[•\-]\s*|^\d+\.\s*/, "");
+          if (lang === "json" && code.trim().startsWith("{")) {
+            return null; // hide raw JSON proposal details
+          }
+
           return (
-            <div key={idx} className="flex items-start gap-2 pl-2 py-0.5">
-              <span className="text-indigo-600 dark:text-indigo-400 font-bold shrink-0 mt-0.5">•</span>
-              <span className="flex-1 break-words">{renderInlineStyles(listText)}</span>
-            </div>
+            <pre key={partIdx} className="p-3 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-xs text-slate-800 dark:text-slate-200 max-h-48 overflow-auto break-all whitespace-pre-wrap">
+              <code>{code}</code>
+            </pre>
           );
         }
 
-        return <p key={idx} className="my-1 break-words">{renderInlineStyles(trimmed)}</p>;
+        const lines = part.split("\n");
+        return lines.map((line, idx) => {
+          const trimmed = line.trim();
+          if (!trimmed) return <div key={`${partIdx}-${idx}`} className="h-1.5" />;
+
+          if (trimmed.startsWith("### ")) {
+            return (
+              <h3 key={`${partIdx}-${idx}`} className="text-base font-bold text-slate-900 dark:text-white pt-2 pb-0.5 border-b border-slate-100 dark:border-slate-800/80 break-words">
+                {renderInlineStyles(trimmed.slice(4))}
+              </h3>
+            );
+          }
+          if (trimmed.startsWith("## ")) {
+            return (
+              <h2 key={`${partIdx}-${idx}`} className="text-lg font-bold text-slate-900 dark:text-white pt-3 pb-1 break-words">
+                {renderInlineStyles(trimmed.slice(3))}
+              </h2>
+            );
+          }
+          if (trimmed.startsWith("# ")) {
+            return (
+              <h1 key={`${partIdx}-${idx}`} className="text-xl font-bold text-slate-900 dark:text-white pt-3 pb-1 break-words">
+                {renderInlineStyles(trimmed.slice(2))}
+              </h1>
+            );
+          }
+
+          if (trimmed.startsWith("• ") || trimmed.startsWith("- ") || /^\d+\.\s/.test(trimmed)) {
+            const listText = trimmed.replace(/^[•\-]\s*|^\d+\.\s*/, "");
+            return (
+              <div key={`${partIdx}-${idx}`} className="flex items-start gap-2 pl-2 py-0.5">
+                <span className="text-indigo-600 dark:text-indigo-400 font-bold shrink-0 mt-0.5">•</span>
+                <span className="flex-1 break-words">{renderInlineStyles(listText)}</span>
+              </div>
+            );
+          }
+
+          return <p key={`${partIdx}-${idx}`} className="my-1 break-words">{renderInlineStyles(trimmed)}</p>;
+        });
       })}
     </div>
   );

@@ -496,17 +496,72 @@ export async function POST(req: Request) {
       });
     }
 
-    const isStartBuildRequest = /(build|create|generate|setup|design)\s*(new)?\s*(website|site|coffee|clean|dentist|dental|clinic)/i.test(cleanPrompt);
-    if (isStartBuildRequest && genState && genState.current_milestone === 100) {
-      let nicheKeyword = "coffee";
-      if (lowerPrompt.includes("dent") || lowerPrompt.includes("dental")) nicheKeyword = "dentist";
-      else if (lowerPrompt.includes("clean") || lowerPrompt.includes("cleaning")) nicheKeyword = "cleaning";
+    const openAiApiKey = getOpenAiApiKey();
 
-      const homepageTitle = nicheKeyword === "dentist" ? "Dental Care Clinic" : nicheKeyword === "cleaning" ? "Sparkle Cleaning Co." : "The Coffee Hub";
+    if (!openAiApiKey) {
+      return NextResponse.json({
+        reply: `⚠️ **OpenAI API Key Missing**: Please add \`OPENAI_API_KEY="sk-..."\` to your \`saas/.env\` file.`,
+        site: { id: site.id, name: site.name, url: site.url },
+      });
+    }
+
+    // 1. OpenAI Intent Routing Classifier
+    let isBuildRequest = false;
+    let classifierObj: any = null;
+
+    if (genState && genState.current_milestone === 100) {
+      try {
+        const classifierRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openAiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `Analyze the user's prompt and determine if they want to build, generate, create, or setup a new business website. Return a JSON object with this format. Do not return markdown backticks:
+{
+  "is_build_request": true/false,
+  "niche": "string (e.g. coffee, cleaning, dentist, construction, restaurant, portfolio, custom)",
+  "business_name": "string (detected name or default based on niche)",
+  "location": "string or null (e.g. NYC)",
+  "color_theme": "string or null (e.g. pale green, dark blue, default)",
+  "services_count": number (default is 5, max 10),
+  "contact_info": {
+    "email": "string or null",
+    "phone": "string or null",
+    "address": "string or null"
+  }
+}`
+              },
+              { role: "user", content: cleanPrompt }
+            ],
+            temperature: 0,
+            response_format: { type: "json_object" }
+          })
+        });
+
+        if (classifierRes.ok) {
+          const resJson = await classifierRes.json();
+          classifierObj = JSON.parse(resJson.choices?.[0]?.message?.content || "{}");
+          isBuildRequest = !!classifierObj.is_build_request;
+        }
+      } catch (e) {
+        console.error("Classifier error:", e);
+      }
+    }
+
+    if (isBuildRequest && classifierObj && genState && genState.current_milestone === 100) {
+      const nicheKeyword = classifierObj.niche || "coffee";
+      const businessName = classifierObj.business_name || site.name || "My AI Business";
+      const homepageTitle = businessName;
 
       genState.status = "BUILDING";
       genState.current_milestone = 1;
-      genState.logs = [`[${new Date().toLocaleTimeString()}] Initializing autonomous background site builder...`];
+      genState.logs = [`[${new Date().toLocaleTimeString()}] Initializing autonomous background site builder for ${businessName}...`];
       
       const currentMemory = await prisma.siteMemory.findFirst({
         where: { siteId: site.id, key: "site_generation_state" },
@@ -519,12 +574,12 @@ export async function POST(req: Request) {
       }
 
       // Trigger background build asynchronously
-      runAutonomousBuild(site.id, nicheKeyword).catch(err => {
+      runAutonomousBuild(site.id, classifierObj).catch(err => {
         console.error("Autonomous background builder error:", err);
       });
 
       return NextResponse.json({
-        reply: `⚙️ **Autonomous Site Builder Activated!** ⚙️\n\nI have successfully launched the background builder pipeline to construct your professional **${homepageTitle}** website:\n\n* **Branding Strategy**: Setup color schemes and typography layouts.\n* **Asset Processing**: Sideloading high-quality Unsplash stock photos to media library.\n* **Page Construction**: Creating Home, Services, About, and Contact pages.\n* **Navigation**: Setting up Header/Footer menus.\n\n*Please wait... I will display real-time background logs directly in the chat below!* 🚀`,
+        reply: `⚙️ **Autonomous Site Builder Activated!** ⚙️\n\nI have successfully launched the background builder pipeline to construct your professional **${homepageTitle}** website:\n\n* **Niche & Brand**: ${nicheKeyword.toUpperCase()} business located in ${classifierObj.location || "Local Area"}.\n* **Branding Color Theme**: Compiled using ${classifierObj.color_theme || "standard premium"} color system.\n* **Pages Construction**: Creating Home page, Services page (${classifierObj.services_count || 5} categories), About Us, and Contact page.\n* **Dynamic Asset Import**: Sideloading professional high-resolution stock photos.\n\n*Please wait... I will display real-time background logs directly in the chat below!* 🚀`,
         proposalDraft: null,
         site: { id: site.id, name: site.name, url: site.url },
         generationState: genState,
@@ -534,15 +589,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const openAiApiKey = getOpenAiApiKey();
-
-    if (!openAiApiKey) {
-      return NextResponse.json({
-        reply: `⚠️ **OpenAI API Key Missing**: Please add \`OPENAI_API_KEY="sk-..."\` to your \`saas/.env\` file.`,
-        site: { id: site.id, name: site.name, url: site.url },
-      });
-    }
-const imageContextStr = imageAttachment
+    const imageContextStr = imageAttachment
       ? `USER ATTACHED AN IMAGE FILE FROM DESKTOP:
 FileName: ${imageAttachment.name}
 FileType: ${imageAttachment.type}
@@ -860,7 +907,14 @@ function normalizeProposalObject(proposal: any, imageAttachment: any): any {
 }
 
 
-async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
+async function runAutonomousBuild(siteId: string, classifierObj: any) {
+  const nicheKeyword = (classifierObj.niche || "coffee").toLowerCase();
+  const businessName = classifierObj.business_name || "My Business";
+  const location = classifierObj.location || "";
+  const colorTheme = (classifierObj.color_theme || "").toLowerCase();
+  const servicesCount = classifierObj.services_count || 5;
+  const contactInfo = classifierObj.contact_info || {};
+
   console.log(`[Autonomous Builder] Starting background build for site ${siteId} (Niche: ${nicheKeyword})`);
   
   const appendLog = async (msg: string) => {
@@ -888,9 +942,25 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
 
     await appendLog(`Scan initialized for connected WordPress site at ${site.url}`);
     
-    // Step 1: Initialize Branding Context & Color Palette
+    // Step 1: Initialize Branding Colors
     await appendLog("Phase 1: Generating color palettes & visual brand assets...");
-    const rawName = site.name || "My Business";
+    let primaryColor = "#1e3a8a"; // Default premium dark blue
+    let secondaryColor = "#3b82f6";
+    if (colorTheme.includes("green") || colorTheme.includes("sage") || colorTheme.includes("pale")) {
+      primaryColor = "#2d5a27"; // Sage green
+      secondaryColor = "#5a8f4c";
+    } else if (colorTheme.includes("gold") || colorTheme.includes("luxury") || colorTheme.includes("yellow")) {
+      primaryColor = "#d4af37"; // Luxury gold
+      secondaryColor = "#aa820a";
+    } else if (colorTheme.includes("dark") || colorTheme.includes("black")) {
+      primaryColor = "#1a1a1a"; // Dark mode
+      secondaryColor = "#333333";
+    } else if (colorTheme.includes("orange") || colorTheme.includes("wood")) {
+      primaryColor = "#c2410c"; // Warm orange
+      secondaryColor = "#ea580c";
+    }
+
+    const rawName = businessName;
     let cleanSlug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
     if (!cleanSlug) { cleanSlug = "my-business"; }
     const themeSlug = `${cleanSlug}-premium-ai`;
@@ -904,7 +974,7 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
     const state = JSON.parse(memory.value);
     
     if (state.build_mode === "CUSTOM_PREMIUM") {
-      await appendLog("Phase 2: Compiling & uploading custom WordPress block theme...");
+      await appendLog(`Phase 2: Compiling & uploading custom WordPress block theme with color: ${primaryColor}...`);
       
       const themeJsonObj = {
         version: 2,
@@ -912,8 +982,8 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
           appearanceTools: true,
           color: {
             palette: [
-              { slug: "primary", color: "#1e3a8a", name: "Primary" },
-              { slug: "secondary", color: "#3b82f6", name: "Secondary" },
+              { slug: "primary", color: primaryColor, name: "Primary" },
+              { slug: "secondary", color: secondaryColor, name: "Secondary" },
               { slug: "background", color: "#ffffff", name: "Background" },
               { slug: "text", color: "#212529", name: "Text" }
             ]
@@ -995,14 +1065,12 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
       await appendLog("Building within pre-existing active theme style framework.");
     }
 
-    // Step 3: Create Homepage & Sideload stock images on the fly!
-    await appendLog("Phase 3: Generating visual layout design for Home page...");
-    
-    // Choose stock photos based on niche
-    let unsplashHeroUrl = "https://images.unsplash.com/photo-1507133750040-4a8f57021571?auto=format&fit=crop&w=1920&q=80"; // default coffee shop
-    let unsplashItem1 = "https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?auto=format&fit=crop&w=1200&q=80";
-    let unsplashItem2 = "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80";
-    
+    // Step 3: Select Stock Photos based on niche & location
+    await appendLog("Phase 3: Selecting relevant high-resolution stock photos...");
+    let unsplashHeroUrl = "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1920&q=80"; // Default cafe
+    let unsplashItem1 = "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80";
+    let unsplashItem2 = "https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?auto=format&fit=crop&w=1200&q=80";
+
     if (nicheKeyword.includes("clean")) {
       unsplashHeroUrl = "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1920&q=80";
       unsplashItem1 = "https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?auto=format&fit=crop&w=1200&q=80";
@@ -1011,13 +1079,52 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
       unsplashHeroUrl = "https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=1920&q=80";
       unsplashItem1 = "https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?auto=format&fit=crop&w=1200&q=80";
       unsplashItem2 = "https://images.unsplash.com/photo-1598256989800-fe5f95da9787?auto=format&fit=crop&w=1200&q=80";
+    } else if (nicheKeyword.includes("construct")) {
+      unsplashHeroUrl = "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1920&q=80";
+      unsplashItem1 = "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1200&q=80";
+      unsplashItem2 = "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=1200&q=80";
     }
 
-    const homepageTitle = nicheKeyword.includes("dent") ? "Dental Care Clinic" : nicheKeyword.includes("clean") ? "Sparkle Cleaning Co." : "The Coffee Hub";
-    const subtext = nicheKeyword.includes("dent") ? "Professional dental care solutions for your family." : nicheKeyword.includes("clean") ? "Spotless cleaning services for homes and offices." : "Your cozy spot for the best brews and bites in town.";
+    // Step 4: Generate Page Services List (Max 3 columns per row layout)
+    await appendLog("Phase 4: Modeling custom layout for pages...");
+    const servicesList = [];
+    if (nicheKeyword.includes("clean")) {
+      servicesList.push("Residential Cleaning", "Commercial Janitorial", "Deep Office Clean", "Move In / Move Out", "Window Sanitizing", "Carpet Steam Clean", "Disinfection Services", "Post Construction Clean", "Kitchen Deep Clean", "Upholstery Cleaning");
+    } else if (nicheKeyword.includes("dent")) {
+      servicesList.push("General Dentistry", "Teeth Whitening", "Dental Implants", "Orthodontics", "Root Canal Therapy", "Pediatric Dentistry", "Cosmetic Bonding", "Periodontal Care", "Emergency Dental", "Oral Surgery");
+    } else if (nicheKeyword.includes("construct")) {
+      servicesList.push("General Construction", "Commercial Contracting", "Kitchen & Bath Remodel", "Project Management", "Site Preparation", "Demolition Services", "Roofing & Siding", "Electrical Frameworks", "Plumbing Installation", "Green Building Design");
+    } else {
+      servicesList.push("Espresso Brewing", "Pastry Bakery", "Specialty Latte Art", "Cozy Coffee Tasting", "Catering & Events");
+    }
+
+    const targetServices = servicesList.slice(0, servicesCount);
+    
+    // Service Blocks HTML construction with max 3-column rows constraint
+    let servicesHtml = "";
+    for (let i = 0; i < targetServices.length; i += 3) {
+      const chunk = targetServices.slice(i, i + 3);
+      servicesHtml += `<!-- wp:columns {"style":{"spacing":{"margin":{"bottom":"2rem"}}}} -->\n<div class="wp-block-columns" style="margin-bottom:2rem">\n`;
+      for (const s of chunk) {
+        servicesHtml += `<!-- wp:column {"style":{"border":{"radius":"12px","width":"1px","color":"#e2e8f0"},"spacing":{"padding":{"top":"1.5rem","bottom":"1.5rem","left":"1.5rem","right":"1.5rem"}}}} -->
+<div class="wp-block-column" style="border:1px solid #e2e8f0;border-radius:12px;padding:1.5rem">
+<!-- wp:heading {"level":3} -->
+<h3>${s}</h3>
+<!-- /wp:heading -->
+<!-- wp:paragraph -->
+<p>Professional high-quality ${s.toLowerCase()} solutions customized for your requirements.</p>
+<!-- /wp:paragraph -->
+</div>
+<!-- /wp:column -->\n`;
+      }
+      servicesHtml += `</div>\n<!-- /wp:columns -->\n`;
+    }
+
+    const homepageTitle = businessName;
+    const subtext = location ? `Professional ${nicheKeyword} services located in ${location}.` : `Ethical ${nicheKeyword} solutions customized for your needs.`;
     
     let homepageBlocks = `<!-- wp:cover {"url":"${unsplashHeroUrl}","dimRatio":50,"align":"full"} -->
-<div class="wp-block-cover alignfull"><span aria-hidden="true" class="wp-block-cover__background has-background-dim-50 has-background-dim"></span><img class="wp-block-cover__image-background" alt="Hero background image" src="${unsplashHeroUrl}" data-object-fit="cover" /><div class="wp-block-cover__inner-container">
+<div class="wp-block-cover alignfull"><span aria-hidden="true" class="wp-block-cover__background has-background-dim-50 has-background-dim"></span><img class="wp-block-cover__image-background" alt="Hero background" src="${unsplashHeroUrl}" data-object-fit="cover" /><div class="wp-block-cover__inner-container">
 <!-- wp:heading {"textAlign":"center","level":1,"style":{"typography":{"fontSize":"3.5rem"},"color":{"text":"#ffffff"}}} -->
 <h1 class="wp-block-heading has-text-align-center" style="color:#ffffff;font-size:3.5rem">${homepageTitle}</h1>
 <!-- /wp:heading -->
@@ -1026,8 +1133,8 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
 <!-- /wp:paragraph -->
 <!-- wp:buttons {"layout":{"type":"flex","justifyContent":"center"}} -->
 <div class="wp-block-buttons">
-<!-- wp:button {"className":"is-style-fill","style":{"color":{"background":"#3b82f6"}}} -->
-<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/contact" style="background-color:#3b82f6;color:#ffffff">Book Appointment</a></div>
+<!-- wp:button {"className":"is-style-fill","style":{"color":{"background":"${primaryColor}"}}} -->
+<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/contact" style="background-color:${primaryColor};color:#ffffff">Get Started</a></div>
 <!-- /wp:button -->
 </div>
 <!-- /wp:buttons -->
@@ -1037,33 +1144,33 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
 <!-- wp:group {"layout":{"type":"constrained"},"style":{"spacing":{"margin":{"top":"3rem","bottom":"3rem"}}}} -->
 <div class="wp-block-group" style="margin-top:3rem;margin-bottom:3rem">
 <!-- wp:heading {"textAlign":"center","level":2} -->
-<h2 class="has-text-align-center">Featured Highlights</h2>
+<h2 class="has-text-align-center">Featured Specialties</h2>
 <!-- /wp:heading -->
 <!-- wp:columns -->
 <div class="wp-block-columns">
 <!-- wp:column -->
 <div class="wp-block-column">
 <!-- wp:image -->
-<figure class="wp-block-image"><img src="${unsplashItem1}" alt="Service 1" /></figure>
+<figure class="wp-block-image"><img src="${unsplashItem1}" alt="Highlight 1" /></figure>
 <!-- /wp:image -->
 <!-- wp:heading {"level":3} -->
-<h3>Professional Standard</h3>
+<h3>Exceptional Standards</h3>
 <!-- /wp:heading -->
 <!-- wp:paragraph -->
-<p>We pride ourselves on offering the highest quality services custom tailored to your requirements.</p>
+<p>We pride ourselves on offering the highest quality services custom tailored to your business needs.</p>
 <!-- /wp:paragraph -->
 </div>
 <!-- /wp:column -->
 <!-- wp:column -->
 <div class="wp-block-column">
 <!-- wp:image -->
-<figure class="wp-block-image"><img src="${unsplashItem2}" alt="Service 2" /></figure>
+<figure class="wp-block-image"><img src="${unsplashItem2}" alt="Highlight 2" /></figure>
 <!-- /wp:image -->
 <!-- wp:heading {"level":3} -->
-<h3>Trusted Experts</h3>
+<h3>Trusted Experience</h3>
 <!-- /wp:heading -->
 <!-- wp:paragraph -->
-<p>Our experienced team ensures safety, efficiency, and full client satisfaction every time.</p>
+<p>Our experienced team ensures safety, efficiency, and complete client satisfaction every time.</p>
 <!-- /wp:paragraph -->
 </div>
 <!-- /wp:column -->
@@ -1072,10 +1179,11 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
 </div>
 <!-- /wp:group -->`;
 
-    await appendLog("Phase 4: Sideloading hero and features stock images into WordPress Media Library...");
+    // Step 5: Sideload images and publish Homepage
+    await appendLog("Phase 5: Sideloading homepage stock images into WordPress Media Library...");
     const sideloadedHomepageBlocks = await sideloadUnsplashImagesInContent(site, homepageBlocks);
 
-    await appendLog("Phase 5: Creating and publishing Homepage on WordPress...");
+    await appendLog("Phase 6: Publishing Homepage to WordPress...");
     const homepageRequestBody = JSON.stringify({
       action_type: "create_post",
       proposed_values: {
@@ -1114,8 +1222,8 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
     const homepageId = hpData.post_id || hpData.id || 999;
     await appendLog(`Homepage created successfully! ID #${homepageId}`);
 
-    // Step 4: Configure Reading Settings (Static Root homepage)
-    await appendLog("Phase 6: Assigning static Front Page configurations...");
+    // Step 6: Configure static Front Page
+    await appendLog("Phase 7: Assigning static Front Page configurations...");
     const configRequestBody = JSON.stringify({
       action_type: "set_front_page",
       proposed_values: {
@@ -1143,23 +1251,17 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
     });
     await appendLog("Root static homepage successfully redirected to Home.");
 
-    // Step 5: Create Inner Pages (Services, About, Contact)
-    await appendLog("Phase 7: Generating content and layouts for inner sitemap pages...");
+    // Step 7: Create Sitemap Inner Pages (Services, About, Contact)
+    await appendLog("Phase 8: Generating layout designs for inner pages...");
     const innerPages = [
       {
         title: "Services",
         content: `<!-- wp:group {"layout":{"type":"constrained"},"style":{"spacing":{"margin":{"top":"3rem","bottom":"3rem"}}}} -->
 <div class="wp-block-group" style="margin-top:3rem;margin-bottom:3rem">
 <!-- wp:heading {"level":1} -->
-<h1>Our Premium Offerings</h1>
+<h1>Our Specialties</h1>
 <!-- /wp:heading -->
-<!-- wp:list -->
-<ul>
-<li><strong>Custom Service Package A</strong>: Bespoke solutions for modern clients.</li>
-<li><strong>Advanced Support Tier B</strong>: 24/7 client-centric dedicated care.</li>
-<li><strong>Elite Consultant Package C</strong>: Strategic consulting and planning metrics.</li>
-</ul>
-<!-- /wp:list -->
+${servicesHtml}
 </div>
 <!-- /wp:group -->`
       },
@@ -1171,7 +1273,7 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
 <h1>About Our Mission</h1>
 <!-- /wp:heading -->
 <!-- wp:paragraph -->
-<p>We are a dedicated team of professionals focused on delivering state-of-the-art results for our global client community.</p>
+<p>We are a dedicated team of professionals focused on delivering state-of-the-art results for our client community.</p>
 <!-- /wp:paragraph -->
 </div>
 <!-- /wp:group -->`
@@ -1191,10 +1293,10 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
       }
     ];
 
-    const pageIds: { title: string, id: number }[] = [{ title: "Home", id: homepageId }];
+    const pageIds = [{ title: "Home", id: homepageId }];
 
     for (const p of innerPages) {
-      await appendLog(`Sideloading images & publishing page: "${p.title}"...`);
+      await appendLog(`Publishing inner page: "${p.title}"...`);
       const sideloadedPageBlocks = await sideloadUnsplashImagesInContent(site, p.content);
 
       const requestBody = JSON.stringify({
@@ -1236,8 +1338,8 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
       }
     }
 
-    // Step 6: Create Navigation menu linking all pages
-    await appendLog("Phase 8: Configuring main navigation menu...");
+    // Step 8: Create Navigation menu linking all pages
+    await appendLog("Phase 9: Configuring main navigation menu...");
     const menuRequestBody = JSON.stringify({
       action_type: "create_menu",
       proposed_values: {
@@ -1270,8 +1372,8 @@ async function runAutonomousBuild(siteId: string, nicheKeyword: string) {
     });
     await appendLog("Main Navigation Menu configured and linked successfully.");
 
-    // Step 7: Completed Autonomous Build successfully
-    await appendLog("Phase 9: Running final SEO and Sitemap Audits...");
+    // Step 9: Completed Autonomous Build successfully
+    await appendLog("Phase 10: Running final SEO and Sitemap Audits...");
     await appendLog("Site verification successful! Zero errors found.");
 
     // Finalize DB state

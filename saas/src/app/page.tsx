@@ -7,7 +7,7 @@ import { ChatMessageStream, ChatMessage } from "../components/chat/ChatMessageSt
 import { ConnectWebsiteModal } from "../components/chat/ConnectWebsiteModal";
 import { EditKeysModal } from "../components/chat/EditKeysModal";
 import { DeleteWebsiteModal } from "../components/chat/DeleteWebsiteModal";
-import { Plus, Mic, ArrowUp, ImageIcon, X } from "lucide-react";
+import { Plus, Mic, ArrowUp, ImageIcon, X, Loader2 } from "lucide-react";
 
 export default function ChatGPTPage() {
   const [user, setUser] = React.useState<any | null>(null);
@@ -523,6 +523,23 @@ export default function ChatGPTPage() {
         </div>
       )}
 
+      {/* Full-Screen welcome scan loader overlay */}
+      {isLoading && messages.length === 0 && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 text-center max-w-sm w-full mx-4 space-y-4">
+            <div className="flex justify-center">
+              <Loader2 className="h-10 w-10 text-indigo-600 dark:text-indigo-400 animate-spin" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">🔍 Scanning Website Connection</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Analyzing page sitemaps, active theme specifications, and content inventory on your live WordPress site...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Connect Website Modal */}
       <ConnectWebsiteModal
         isOpen={connectModalOpen}
@@ -530,6 +547,11 @@ export default function ChatGPTPage() {
         onSuccess={(newSite) => {
           setUserSites((prev) => [newSite, ...prev]);
           setActiveSite(newSite);
+          // Purge localStorage cache for this new site ID to ensure clean onboarding
+          if (typeof window !== "undefined") {
+            const storageKey = `wp_ai_chat_history_user_${user?.id}_site_${newSite.id}`;
+            localStorage.removeItem(storageKey);
+          }
         }}
       />
 
