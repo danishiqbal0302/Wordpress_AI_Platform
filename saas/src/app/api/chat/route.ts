@@ -293,7 +293,17 @@ export async function POST(req: Request) {
       const activeThemeInfo = activeTheme || {};
       const isBlock = !!activeThemeInfo.is_block_theme;
       
-      const isSiteBlank = sitePages.length === 0 && sitePosts.length === 0;
+      const defaultTitles = ["sample page", "privacy policy", "hello world", "hello world!"];
+      const actualNonDefaultPages = sitePages.filter((p: any) => {
+        const title = (p.title || "").toLowerCase();
+        return !defaultTitles.includes(title);
+      });
+      const actualNonDefaultPosts = sitePosts.filter((p: any) => {
+        const title = (p.title || "").toLowerCase();
+        return !defaultTitles.includes(title);
+      });
+
+      const isSiteBlank = actualNonDefaultPages.length === 0 && actualNonDefaultPosts.length === 0;
       
       let niche = "Business Niche";
       const titleLower = (site.name || "").toLowerCase();
@@ -317,13 +327,17 @@ export async function POST(req: Request) {
         genState.current_milestone = 100; // Conversational chatbot
         genState.status = "PASSED";
         genState.build_mode = "CURRENT_THEME";
-        genState.suggestions = [
-          "Optimize SEO on my existing pages",
-          "Create a new service page",
-          "Change my site brand colors",
-          "Build a custom block layout"
-        ];
-        customMilestoneMessage = `👋 Hi! I have successfully connected to your website. I detected your website topic is related to **${niche}**.\n\nIt looks very interesting! How can I help you improve or update your site today? You can choose one of the suggestion options below or describe what you want to do directly!`;
+        
+        // If it's the welcome scan trigger, return greeting. Otherwise, let it fall through to process prompt.
+        if (cleanPrompt.toLowerCase().trim() === "hello") {
+          genState.suggestions = [
+            "Optimize SEO on my existing pages",
+            "Create a new service page",
+            "Change my site brand colors",
+            "Build a custom block layout"
+          ];
+          customMilestoneMessage = `👋 Hi! I have successfully connected to your website. I detected your website topic is related to **${niche}**.\n\nIt looks very interesting! How can I help you improve or update your site today? You can choose one of the suggestion options below or describe what you want to do directly!`;
+        }
       }
 
       // Save updated state to DB
@@ -336,7 +350,7 @@ export async function POST(req: Request) {
           data: { value: JSON.stringify(genState) },
         });
       }
-    } 
+    }
     else if (genState && genState.current_milestone === 9 && genState.status === "AWAITING_INPUT") {
       const choice = (cleanPrompt || "").toLowerCase().trim();
       let selectedOption = "";
