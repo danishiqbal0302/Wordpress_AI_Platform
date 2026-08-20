@@ -445,19 +445,30 @@ export async function POST(req: Request) {
         } catch (e) {
           customMilestoneMessage = `✨ **Theme Generated!** ✨\n\nI compiled your custom premium block theme templates. Please ensure your custom theme is activated in your WordPress admin under Appearance -> Themes. What pages should we build next?`;
         }
-      } else {
+
+        genState.current_milestone = 100; // Move to conversational mode
+        genState.status = "PASSED";
+        genState.suggestions = [
+          "Build Dentist Clinic website",
+          "Build Cleaning Company website",
+          "Build Coffee Shop website"
+        ];
+      } else if (selectedOption === "CURRENT_THEME") {
         genState.build_mode = "CURRENT_THEME";
         genState.build_mode_status = "SELECTED";
         customMilestoneMessage = `Great choice! We will proceed using your active theme layout system. What business niche or pages would you like to build today?`;
-      }
 
-      genState.current_milestone = 100; // Move to conversational mode
-      genState.status = "PASSED";
-      genState.suggestions = [
-        "Build Dentist Clinic website",
-        "Build Cleaning Company website",
-        "Build Coffee Shop website"
-      ];
+        genState.current_milestone = 100; // Move to conversational mode
+        genState.status = "PASSED";
+        genState.suggestions = [
+          "Build Dentist Clinic website",
+          "Build Cleaning Company website",
+          "Build Coffee Shop website"
+        ];
+      } else {
+        // Keep them on Milestone 9 and remind them of options
+        customMilestoneMessage = `👋 Welcome! I scanned your connected WordPress site and detected that this is a **fresh, blank WordPress installation**.\n\nTo build your visual framework, would you like to build using the **current active theme** or generate a modern, premium **custom block theme** (highly recommended for custom visual design controls)?`;
+      }
 
       // Save updated state to DB
       const currentMemory = await prisma.siteMemory.findFirst({
