@@ -29,6 +29,7 @@ export interface ChatMessage {
   actionStatus?: "idle" | "applying" | "applied" | "rolling_back" | "rolled_back";
   actionLogId?: string;
   errorMessage?: string;
+  suggestions?: string[];
 }
 
 interface ChatMessageStreamProps {
@@ -37,6 +38,7 @@ interface ChatMessageStreamProps {
   isLoading?: boolean;
   onApplyAction: (msgId: string, proposal: any) => Promise<void>;
   onRollbackAction: (msgId: string, actionLogId: string) => Promise<void>;
+  onSelectSuggestion?: (suggestion: string) => void;
 }
 
 // Rich Markdown & Link Text Formatter Component
@@ -135,7 +137,7 @@ function renderInlineStyles(text: string): React.ReactNode {
   });
 }
 
-export function ChatMessageStream({ messages, siteId, isLoading, onApplyAction, onRollbackAction }: ChatMessageStreamProps) {
+export function ChatMessageStream({ messages, siteId, isLoading, onApplyAction, onRollbackAction, onSelectSuggestion }: ChatMessageStreamProps) {
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -196,6 +198,22 @@ export function ChatMessageStream({ messages, siteId, isLoading, onApplyAction, 
                   >
                     Sign Up for Free
                   </a>
+                </div>
+              )}
+
+              {/* Clickable Suggestion Chips for AI Messages */}
+              {msg.sender === "ai" && msg.suggestions && msg.suggestions.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-2">
+                  {msg.suggestions.map((suggestion, idx) => (
+                    <Button
+                      key={idx}
+                      variant="outline"
+                      className="rounded-full text-xs font-semibold py-1.5 px-3 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/20"
+                      onClick={() => onSelectSuggestion && onSelectSuggestion(suggestion)}
+                    >
+                      {suggestion}
+                    </Button>
+                  ))}
                 </div>
               )}
             </div>

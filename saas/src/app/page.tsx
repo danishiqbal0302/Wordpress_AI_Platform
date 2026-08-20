@@ -121,6 +121,37 @@ export default function ChatGPTPage() {
       .catch(() => {});
   }, []);
 
+  React.useEffect(() => {
+    if (activeSite && messages.length === 0) {
+      setIsLoading(true);
+      fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: "hello",
+          siteId: activeSite.id,
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.reply) {
+          setMessages([
+            {
+              id: `ai-${Date.now()}`,
+              sender: "ai",
+              text: data.reply,
+              suggestions: data.suggestions || [],
+              site: data.site || activeSite,
+              proposalDraft: data.proposalDraft,
+            }
+          ]);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
+    }
+  }, [activeSite, messages.length]);
+
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     if (typeof window !== "undefined") {
@@ -345,6 +376,7 @@ export default function ChatGPTPage() {
             isLoading={isLoading}
             onApplyAction={handleApplyAction}
             onRollbackAction={handleRollbackAction}
+            onSelectSuggestion={(suggestion) => handleSubmitPrompt(suggestion)}
           />
 
           {/* Sticky Bottom Floating Input Pill Box */}
