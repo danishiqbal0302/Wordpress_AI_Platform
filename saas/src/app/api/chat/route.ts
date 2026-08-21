@@ -242,10 +242,10 @@ export async function POST(req: Request) {
       }
     }
 
-    const isNewBuildRequest = /(build|create|generate|start|setup|make|want|need|design)\s*(new)?\s*(website|site|pages|cleaning|portfolio|restaurant|dental|law|coffee|shop|dentist|clinic|cafe)/i.test(cleanPrompt);
+    const isNewBuildRequest = /(build|create|generate|start|setup|make|want|need|design)\s*(new)?\s*(website|site|pages|cleaning|portfolio|restaurant|gaming|dental|law|coffee|shop|dentist|clinic|cafe)/i.test(cleanPrompt);
     const isResetRequest = /(reset|start over|restart|clear state|delete state)/i.test(cleanPrompt);
 
-    if (isResetRequest || isNewBuildRequest) {
+    if (!genState) {
       genState = {
         current_milestone: 0,
         status: "PLANNED",
@@ -270,18 +270,33 @@ export async function POST(req: Request) {
         }
       };
 
-      if (stateMemory) {
+      await prisma.siteMemory.create({
+        data: {
+          siteId: site.id,
+          key: "site_generation_state",
+          value: JSON.stringify(genState),
+        },
+      });
+    } else if (isResetRequest || isNewBuildRequest) {
+      genState.current_milestone = 0;
+      genState.status = "PLANNED";
+      genState.attempt = 0;
+      genState.started_at = new Date().toISOString();
+      genState.completed_at = null;
+      genState.verification_result = null;
+      genState.last_error = null;
+      
+      delete genState.build_mode;
+      delete genState.build_mode_status;
+      delete genState.pending_build_params;
+
+      const currentMemory = await prisma.siteMemory.findFirst({
+        where: { siteId: site.id, key: "site_generation_state" },
+      });
+      if (currentMemory) {
         await prisma.siteMemory.update({
-          where: { id: stateMemory.id },
+          where: { id: currentMemory.id },
           data: { value: JSON.stringify(genState) },
-        });
-      } else {
-        await prisma.siteMemory.create({
-          data: {
-            siteId: site.id,
-            key: "site_generation_state",
-            value: JSON.stringify(genState),
-          },
         });
       }
     }
