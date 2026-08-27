@@ -95,6 +95,7 @@ export async function POST(req: Request) {
 
     let sitePages: any[] = [];
     let sitePosts: any[] = [];
+    let siteMedia: any[] = [];
     let siteSettings: any = {};
     let activeTheme: any = {};
 
@@ -124,31 +125,34 @@ export async function POST(req: Request) {
         }).catch(() => null);
       }
 
-      if (invRes && invRes.ok) {
-        const invData = await invRes.json().catch(() => ({}));
-        sitePages = invData.pages || [];
-        sitePosts = invData.posts || [];
-        siteSettings = invData.site_settings || {};
-        activeTheme = invData.active_theme || {};
+        if (invRes && invRes.ok) {
+          const invData = await invRes.json().catch(() => ({}));
+          sitePages = invData.pages || [];
+          sitePosts = invData.posts || [];
+          siteSettings = invData.site_settings || {};
+          activeTheme = invData.active_theme || {};
+          siteMedia = invData.media_inventory?.sample_items || invData.media || [];
 
-        if (sitePages.length > 0 || sitePosts.length > 0) {
-          // Save to global in-memory backup cache
-          (global as any).wpAiInventoryCache[site.id] = {
-            pages: sitePages,
-            posts: sitePosts,
-            site_settings: siteSettings,
-            active_theme: activeTheme,
-            timestamp: Date.now(),
-          };
-          (global as any).wpAiInventoryCache["global_latest"] = {
-            pages: sitePages,
-            posts: sitePosts,
-            site_settings: siteSettings,
-            active_theme: activeTheme,
-            timestamp: Date.now(),
-          };
+          if (sitePages.length > 0 || sitePosts.length > 0) {
+            // Save to global in-memory backup cache
+            (global as any).wpAiInventoryCache[site.id] = {
+              pages: sitePages,
+              posts: sitePosts,
+              site_settings: siteSettings,
+              active_theme: activeTheme,
+              media: siteMedia,
+              timestamp: Date.now(),
+            };
+            (global as any).wpAiInventoryCache["global_latest"] = {
+              pages: sitePages,
+              posts: sitePosts,
+              site_settings: siteSettings,
+              active_theme: activeTheme,
+              media: siteMedia,
+              timestamp: Date.now(),
+            };
+          }
         }
-      }
     } catch (err) {
       console.warn("[Chat API] Live inventory fetch notice:", err);
     }
@@ -198,7 +202,7 @@ export async function POST(req: Request) {
         h1_count: i.content_structure?.h1_count ?? (raw.includes("<h1") ? 1 : 0),
         images_count: i.content_structure?.images_count ?? 0,
         missing_alt_images: i.content_structure?.missing_alt_images || i.missing_alt_images || [],
-        raw_content: rawContentToInclude,
+        raw_content: rawContentToInclude.replace(/\s+alt=(["'])(.*?)\1/gi, ' alt=""'),
       };
     });
 
@@ -242,7 +246,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const isNewBuildRequest = /(build|create|generate|start|setup|make|want|need|design)\s*(new)?\s*(website|site|pages|cleaning|portfolio|restaurant|gaming|dental|law|coffee|shop|dentist|clinic|cafe)/i.test(cleanPrompt);
+    const isNewBuildRequest = /(build|generate|create|setup)\s+(a\s+)?(complete\s+)?(new\s+)?(entire\s+)?(website|site)/i.test(cleanPrompt);
     const isResetRequest = /(reset|start over|restart|clear state|delete state)/i.test(cleanPrompt);
 
     if (!genState) {
@@ -480,7 +484,7 @@ export async function POST(req: Request) {
           const params = genState.pending_build_params;
           delete genState.pending_build_params;
           const businessName = params.business_name || site.name || "My AI Business";
-          const nicheKeyword = params.niche || "coffee";
+          const nicheKeyword = params.niche || "business";
 
           genState.status = "BUILDING";
           genState.current_milestone = 1;
@@ -508,7 +512,7 @@ export async function POST(req: Request) {
           const params = genState.pending_build_params;
           delete genState.pending_build_params;
           const businessName = params.business_name || site.name || "My AI Business";
-          const nicheKeyword = params.niche || "coffee";
+          const nicheKeyword = params.niche || "business";
 
           genState.status = "BUILDING";
           genState.current_milestone = 1;
@@ -568,90 +572,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 1. OpenAI Intent Routing Classifier
-    let isBuildRequest = false;
-    let classifierObj: any = null;
-
-    if (genState && genState.current_milestone === 100) {
-      try {
-        const classifierRes = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: `Analyze the user's prompt and determine if they want to build, generate, create, or setup a new business website. Return a JSON object with this format. Do not return markdown backticks:
-{
-  "is_build_request": true/false,
-  "niche": "string (e.g. coffee, cleaning, dentist, construction, restaurant, portfolio, custom)",
-  "business_name": "string (detected name or default based on niche)",
-  "location": "string or null (e.g. NYC)",
-  "color_theme": "string or null (e.g. pale green, dark blue, default)",
-  "services_count": number (default is 5, max 10),
-  "contact_info": {
-    "email": "string or null",
-    "phone": "string or null",
-    "address": "string or null"
-  }
-}`
-              },
-              { role: "user", content: cleanPrompt }
-            ],
-            temperature: 0,
-            response_format: { type: "json_object" }
-          })
-        });
-
-        if (classifierRes.ok) {
-          const resJson = await classifierRes.json();
-          classifierObj = JSON.parse(resJson.choices?.[0]?.message?.content || "{}");
-          isBuildRequest = !!classifierObj.is_build_request;
-        }
-      } catch (e) {
-        console.error("Classifier error:", e);
-      }
-    }
-
-    if (isBuildRequest && classifierObj && genState && genState.current_milestone === 100) {
-      const nicheKeyword = classifierObj.niche || "coffee";
-      const businessName = classifierObj.business_name || site.name || "My AI Business";
-      const homepageTitle = businessName;
-
-      genState.status = "BUILDING";
-      genState.current_milestone = 1;
-      genState.logs = [`[${new Date().toLocaleTimeString()}] Initializing autonomous background site builder for ${businessName}...`];
-      
-      const currentMemory = await prisma.siteMemory.findFirst({
-        where: { siteId: site.id, key: "site_generation_state" },
-      });
-      if (currentMemory) {
-        await prisma.siteMemory.update({
-          where: { id: currentMemory.id },
-          data: { value: JSON.stringify(genState) },
-        });
-      }
-
-      // Trigger background build asynchronously
-      runAutonomousBuild(site.id, classifierObj).catch(err => {
-        console.error("Autonomous background builder error:", err);
-      });
-
-      return NextResponse.json({
-        reply: `⚙️ **Autonomous Site Builder Activated!** ⚙️\n\nI have successfully launched the background builder pipeline to construct your professional **${homepageTitle}** website:\n\n* **Niche & Brand**: ${nicheKeyword.toUpperCase()} business located in ${classifierObj.location || "Local Area"}.\n* **Branding Color Theme**: Compiled using ${classifierObj.color_theme || "standard premium"} color system.\n* **Pages Construction**: Creating Home page, Services page (${classifierObj.services_count || 5} categories), About Us, and Contact page.\n* **Dynamic Asset Import**: Sideloading professional high-resolution stock photos.\n\n*Please wait... I will display real-time background logs directly in the chat below!* 🚀`,
-        proposalDraft: null,
-        site: { id: site.id, name: site.name, url: site.url },
-        generationState: genState,
-        requireAuth: false,
-        requireSite: false,
-        suggestions: []
-      });
-    }
-
     const imageContextStr = imageAttachment
       ? `USER ATTACHED AN IMAGE FILE FROM DESKTOP:
 FileName: ${imageAttachment.name}
@@ -659,15 +579,69 @@ FileType: ${imageAttachment.type}
 IMPORTANT: If the user requests to set this attached image as their site logo, you MUST generate a proposal card with actionType "set_site_logo" and set suggestedValue to "${imageAttachment.name}". The backend will automatically map this name to the image dataUrl.`
       : "No image attached.";
 
+    // Extract target page media items if user prompt references a specific page (e.g. Home page)
+    const isAltReq = /(alt text|alt-text|missing alt|image alt)/i.test(cleanPrompt);
+    let targetPageMedia = siteMedia;
+
+    if (isAltReq && siteMedia.length > 0) {
+      const matchedPage = allInventoryItems.find(i => lowerPrompt.includes((i.title || "").toLowerCase()) || lowerPrompt.includes((i.slug || "").toLowerCase())) || allInventoryItems.find(i => (i.title || "").toLowerCase() === "home");
+      
+      if (matchedPage) {
+        const rawHtml = matchedPage.raw_content || "";
+        const embeddedIdMatches = Array.from(rawHtml.matchAll(/wp-image-(\d+)|"id":(\d+)/gi)).map((m: any) => parseInt(m[1] || m[2])).filter(Boolean);
+        const uniqueEmbeddedIds = Array.from(new Set(embeddedIdMatches));
+
+        const pageSpecificMedia = siteMedia.filter(m => 
+          m.parent_post_id === matchedPage.id || 
+          uniqueEmbeddedIds.includes(m.id) || 
+          (m.url && rawHtml.includes(m.url))
+        );
+
+        if (pageSpecificMedia.length > 0) {
+          targetPageMedia = pageSpecificMedia;
+          console.log(`[Chat API Media Filtering] Filtered site media down to ${targetPageMedia.length} images specifically embedded on page "${matchedPage.title}" (#${matchedPage.id}). IDs:`, targetPageMedia.map(m => m.id));
+        }
+      }
+    }
+
+    const mediaSummaryStr = targetPageMedia.length > 0
+      ? targetPageMedia.map((m, idx) => `${idx + 1}. Attachment ID #${m.id} | Title: "${m.title || 'Untitled'}" | URL: "${m.url || ''}" | Current ALT: "${m.alt_text || 'MISSING'}" | Parent Page: "${m.parent_post_title || 'None'}" (ID #${m.parent_post_id || 0}) | Caption: "${m.caption || ''}" | Description: "${m.description || ''}"`).join("\n")
+      : "No media items returned from media library.";
+
     const systemMessage = `You are WordPress AI Assistant connected live to WordPress website "${site.name}" (${site.url}).
+
+UNIFIED INTENT CLASSIFICATION & OPERATIONAL PRECEDENCE RULES:
+Analyze the user's prompt and determine its primary intent into exactly one of three categories:
+
+1. OPERATIONAL_REQUEST (PRECEDENCE #1 - HIGHEST):
+   Any natural-language request to modify, inspect, fix, add, remove, update, audit, rollback, or manage an existing WordPress page or entity using an existing platform capability.
+   Includes:
+   - Adding or inserting images, photos, banners, or visual blocks ("add a gaming image", "put a picture here", "place a hero visual") -> actionType "add_image"
+   - Updating image ALT text ("fix alt text", "add alt tag to attachment 61") -> actionType "update_alt_text"
+   - Editing page content, headings, body text, hero sections, cards ("update homepage text", "redesign services") -> actionType "update_post_content"
+   - Creating a single post or page ("create a new post", "create a page called Portfolio", "add an article about AI") -> actionType "create_post" (set post_type: "post" for blog articles/posts, post_type: "page" for pages)
+   - Page titles, menu setup, logo, homepage configuration, audits, rollbacks.
+   RULE: For OPERATIONAL_REQUEST, YOU MUST GENERATE PROPOSAL_JSON FOR THE CORRESPONDING OPERATIONAL ACTION. YOU MUST NEVER INVOKE OR PROPOSE A SITE BUILD FOR OPERATIONAL REQUESTS.
+
+2. SITE_BUILD_REQUEST (PRECEDENCE #2):
+   The user explicitly requests creating, building, generating, or setting up an ENTIRE multi-page business website from scratch (e.g., "Build me a complete gaming website", "Create a site for a cleaning business").
+   RULE: Creating a single post or page (e.g., "create a new post", "create a page called Portfolio") is NOT a site_build_request. It is an OPERATIONAL_REQUEST (actionType: "create_post").
+   IF AND ONLY IF the user explicitly requests an entire multi-page website AND specifies their business niche, output PROPOSAL_JSON with:
+   PROPOSAL_JSON:
+   {
+     "actionType": "site_build_request",
+     "niche": "gaming",
+     "business_name": "Detected Name or Default"
+   }
+
+3. CLARIFICATION_NEEDED (PRECEDENCE #3):
+   If the prompt is ambiguous, or if the user requests to build a website WITHOUT providing their business niche (e.g., "build me a website", "make a site", "make something cool by yourself"), DO NOT OUTPUT PROPOSAL_JSON. Ask the user a friendly clarifying question asking for their business niche (e.g., "What kind of business or niche would you like to build your website for? (e.g., Gaming, Cleaning, Restaurant, Portfolio)"). NEVER guess or assume a default business niche such as coffee.
 
 CURRENT STATE MACHINE CONTEXT (Milestone-based generation pipeline):
 ${genState ? `Active State: ${JSON.stringify(genState, null, 2)}` : "No active build state machine."}
-Rule: You must strictly align any generated proposal content, layouts, sitemaps, templates, or media mapping variables with the active state machine parameters shown above. If the active state has established a designStrategy, websiteArchitecture, homepageBlueprint, or mediaWorkflow, you MUST read and apply them (e.g. use the exact layout, colors, sections, image mappings, and pages determined by those strategies).
-DO NOT invent customer reviews, testimonials, ratings, years of experience, locations, phone numbers, or credentials unless explicitly supplied in the brandingContext or site context. If the blueprint has testimonials, do NOT invent fake reviews/ratings; either omit them or present non-factual visual section elements instead of customer attributions.
-If the active state contains a mediaWorkflow with imported stock images (mapped under section IDs), you MUST use those exact sideloaded media attachment URLs for the corresponding sections inside Cover, Columns, Media & Text, or Image blocks. Do NOT request external Unsplash image URLs directly. Use the imported media URLs.
+Rule: You must strictly align any generated proposal content, layouts, sitemaps, templates, or media mapping variables with the active state machine parameters shown above. If the active state has established a designStrategy, websiteArchitecture, homepageBlueprint, or mediaWorkflow, you MUST read and apply them.
 
-PAST SITE MEMORIES & SAVED CONTEXT (Learned from previous sessions or Search Console logs):
+PAST SITE MEMORIES & SAVED CONTEXT:
 ${memoriesStr}
 
 SITE VOLUME ANALYSIS:
@@ -689,84 +663,53 @@ ${pagesSummaryStr}
 POSTS LIST:
 ${postsSummaryStr}
 
+TARGET PAGE MEDIA LIBRARY INVENTORY (${targetPageMedia.length} IMAGES ON THIS PAGE):
+${mediaSummaryStr}
+
 DETAILED INVENTORY & RAW CONTENT:
 ${JSON.stringify(structuredInventory, null, 2)}
 
 ${imageContextStr}
 
 SUPPORTED ACTION TYPES FOR PROPOSAL_JSON:
-- "update_post_title": Use when user wants to change, rename, or update page/post title. (ruleId: "CONTENT_002")
-- "update_meta_description": Use when user wants to add/update meta description. (ruleId: "SEO_001")
-- "update_meta_title": Use when user wants to update SEO title tag. (ruleId: "SEO_004")
-- "update_post_content": Use when user wants to redesign, upgrade, remove, replace, add, or edit headings, paragraphs, hero banners, feature cards, team sections, images, or body content on a page. (ruleId: "CONTENT_001" or "CONTENT_003")
-- "update_alt_text": Use when user wants to fix image ALT text. (ruleId: "MEDIA_001")
-- "create_post": Use when the user requests to create or publish a new page or post (e.g. Services, About Us, Contact, Testimonials, Home). In suggestedValue, pass a JSON object: { "title": "Page Title", "content": "Gutenberg HTML content", "post_type": "page", "post_status": "publish" }. (ruleId: "CONTENT_006")
-- "create_menu": Use when the user wants to set up navigation menus. In suggestedValue, pass a JSON object: { "menu_name": "Main Navigation", "menu_items": [ { "title": "Home", "type": "post_type", "object_id": 123 }, { "title": "Services", "type": "post_type", "object_id": 124 } ] }. (ruleId: "MENU_001")
-- "set_front_page": Use when the user wants to configure which page is displayed as the static homepage. In suggestedValue, pass the Page ID as a number or string. (ruleId: "CONFIG_001")
-- "set_site_logo": Use when the user uploads/shares a logo and wants it set globally. In suggestedValue, pass the Logo image URL. (ruleId: "CONFIG_002")
+- "update_post_title": (ruleId: "CONTENT_002")
+- "update_meta_description": (ruleId: "SEO_001")
+- "update_meta_title": (ruleId: "SEO_004")
+- "update_post_content": (ruleId: "CONTENT_001" or "CONTENT_003")
+- "update_alt_text": (ruleId: "MEDIA_001")
+- "add_image": (ruleId: "MEDIA_002"). When user requests an image by topic (e.g. "Add a gaming image to the Home page", "Add a mountain photo"), IMMEDIATELY generate PROPOSAL_JSON with actionType "add_image", setting topic to the requested topic (e.g., "gaming", "mountain"), placement to "append", and entityId to target Page ID. DO NOT ask the user to provide an image URL.
+- "create_post": Set post_type to "post" for blog posts/articles/news, and post_type to "page" for website pages. (ruleId: "CONTENT_006")
+- "create_menu": (ruleId: "MENU_001")
+- "set_front_page": (ruleId: "CONFIG_001")
+- "set_site_logo": (ruleId: "CONFIG_002")
+- "site_build_request": Use ONLY when user explicitly asks for a complete new multi-page website AND specifies an explicit business niche.
 
-CRITICAL ONBOARDING & SCAN RULES:
-1. BLANK SITE ONBOARDING:
-   - If "Is site empty/blank?" is YES:
-     - Promptly and warmly welcome the user to their fresh new WordPress site.
-     - Tell them: "It looks like your WordPress site is currently empty. What kind of website do you want to build? Share a short summary (e.g., 'a premium cleaning company' or 'an AI agency portfolio') and I will guide you to create and design your pages with outstanding Gutenberg blocks, optimized content, and perfect SEO configurations!"
-     - Do not scan for existing issues since there is no content.
-   - HOMEPAGE SETTING ENFORCEMENT:
-     - If you create or update a page intended to be the Homepage (e.g. "Home" page, or a page titled "Deep Cleaning"), and the GLOBAL SITE CONFIGURATION SETTINGS shows show_on_front is not "page" or page_on_front is not set to this page's ID:
-       - You MUST inform the user in your message that you need to set this page as their website's static Homepage so it loads automatically at the root URL / instead of a blog roll.
-       - You MUST generate a proposal card with actionType "set_front_page" and suggestedValue set to that page's ID (e.g. 232).
-2. EXISTING SITE ENGAGEMENT:
-   - If "Is site empty/blank?" is NO:
-     - Keep the user highly engaged by adding a "Proactive Scan Recommendation" at the bottom of your response:
-       - *"I also ran a quick background audit on your site and found X issues (e.g. Y alt texts missing, Z heading hierarchy skips). Would you like me to resolve them safely?"*
-     - If they asked to modify page content, once executed, mention that you've kept the page SEO-friendly, and show the follow-up scanner results to encourage fixing other pages.
-3. SEARCH CONSOLE ERROR & MEMORY RECORDING:
-   - If the user shares Search Console errors or asks you to diagnose indexability:
-     - Formulate a clear fix plan, execute page updates if needed, and tell the user that you've logged this in the database Site Memory so you will remember it in future messages.
+CRITICAL IMAGE SCOPE & CONTEXTUAL ALT TEXT RULES:
+1. SCOPE RESOLUTION:
+   - SINGLE IMAGE: Generate actionType "update_alt_text" with single attachment_id and contextual alt_text.
+   - PAGE SCOPE: Generate actionType "update_alt_text" with "targets": [ { attachment_id, image_url, alt_text } ] for EVERY SINGLE image listed in TARGET PAGE MEDIA LIBRARY INVENTORY (${targetPageMedia.length} images).
+   - SITE-WIDE SCOPE: Generate actionType "update_alt_text" with "targets": [ { attachment_id, image_url, alt_text } ] for all missing-alt images across site.
+2. STRICT 100% COMPLETE COVERAGE MANDATE:
+   - When generating actionType "update_alt_text" for a page, YOU MUST INCLUDE EVERY SINGLE ATTACHMENT ID LISTED IN TARGET PAGE MEDIA LIBRARY INVENTORY (${targetPageMedia.length} IMAGES TOTAL) IN THE "targets" ARRAY.
+   - YOU MUST NEVER OMIT, TRUNCATE, OR LEAVE OUT ANY IMAGE. IF THERE ARE ${targetPageMedia.length} IMAGES LISTED, YOUR PROPOSAL JSON "targets" ARRAY MUST CONTAIN EXACTLY ${targetPageMedia.length} OBJECTS.
+2. CONTEXTUAL ALT TEXT EVIDENCE ORDER (PRIMARY CONTEXT FIRST):
+   1) TARGET PAGE TOPIC AND PURPOSE (PRIMARY CONTEXT)
+   2) SURROUNDING PAGE/BLOCK CONTENT WHERE THE IMAGE APPEARS
+   3) IMAGE'S ROLE ON THAT PAGE
+   4) ACTUAL VISUAL CONTENT + IMAGE METADATA (title, filename, caption, description)
+   5) CURRENT USER PROMPT ONLY WHEN IT EXPLICITLY SPECIFIES THE SUBJECT
 
-CRITICAL PERSONALITY & TONE RULES:
-1. CHATGPT PERSONALITY:
-   - Speak warmly, intelligently, and interactively (just like ChatGPT).
-   - Use SUBTLE, TASTEFUL emojis (✨, 💡, 🚀, 📌) only where helpful. Do not over-use emojis.
-   - Always encourage user collaboration and ask natural follow-up questions.
-2. ACCURATE PAGE REPORTING:
-   - Your site HAS ${sitePages.length} pages and ${sitePosts.length} posts listed in the inventory above.
-   - NEVER state that there are 0 pages when pages exist in the inventory above!
-3. ABSOLUTELY NO DUMMY ENDINGS:
-   - NEVER write "Now, I will make that change.", "Now, I will implement this change.", or "I will proceed to update..." WITHOUT APPENDING PROPOSAL_JSON.
-   - YOU DO NOT HAVE DIRECT WRITE ACCESS TO WORDPRESS. YOU MUST ALWAYS GENERATE PROPOSAL_JSON FOR EVERY EDIT/CHANGE/REDESIGN REQUEST.
-4. SINGLE PROPOSAL LIMIT:
-   - YOU MUST ONLY PROPOSE EXACTLY ONE ACTION IN PROPOSAL_JSON PER TURN. DO NOT OUTPUT MULTIPLE PROPOSAL JSON BLOCKS.
-   - If multiple actions are requested (e.g., creating a page AND setting a logo AND creating a menu), propose the most important one first (e.g., create_post to create the page), and inform the user that you will configure the menu and logo in the next steps as soon as this page is created.
+3. STRICT CONTEXT ISOLATION & ACCURACY:
+   - NEVER reuse unrelated topics, keywords, or descriptions from previous conversation turns (e.g., sports car, gaming, coffee, etc.) when generating ALT text for unrelated images.
+   - Previous conversation context MAY ONLY influence ALT text when the current user prompt explicitly refers to that previous context.
+   - ALT text MUST describe what is ACTUALLY in the image and its specific metadata (e.g., an elephant skeleton exhibit image MUST be described as an elephant skeleton, NOT a sports car).
+   - Use target page topic + image metadata to construct the most accurate ALT text without inventing unsupported relationships or mixing up unrelated chat turns.
 
-CRITICAL PAGE REDESIGN & GUTENBERG BLOCK PATTERN RULES:
-When the user asks to CREATE, REDESIGN, UPGRADE, IMPROVE, or BEAUTIFY a page:
-1. CLAUDE-LEVEL PREMIUM DESIGN:
-   - Do NOT just generate boring, plain grey boxes. Generate stunning, modern layouts.
-   - Use inline 'style' attributes on wrapping 'div' containers to apply rich, modern styling:
-     - Card Container: style="box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-radius: 20px; border: 1px solid rgba(226, 232, 240, 0.8); padding: 30px; background: #ffffff; margin-bottom: 20px; text-align: left;"
-     - Text colors: slate-800 (#1e293b), indigo-600 (#4f46e5), slate-500 (#64748b).
-     - Button styles: style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: #ffffff; font-weight: 700; padding: 14px 28px; border-radius: 9999px; text-decoration: none; display: inline-block; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); border: none; margin-top: 15px;"
-2. High-Quality Stock Images:
-   - Do NOT leave cover blocks empty or use plain grey blocks. Use gorgeous, context-relevant Unsplash stock image URLs inside 'wp:cover' and 'img' src tags.
-   - NYC/Cleaning Unsplash Images:
-     - Hero/Cleaning Cover: https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1920&q=80 (A professional cleaner sanitizing)
-     - Office/Window Clean: https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?auto=format&fit=crop&w=1200&q=80 (Washing windows)
-     - Luxury Home: https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80 (Clean modern apartment)
-     - NYC Skyline (Local context): https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&w=1200&q=80
-3. Structured Content Sections:
-   - **Hero Cover Banner**: Cover block with overlay opacity 50%, a bold, optimized H1 title, a descriptive subtitle, and a beautiful CTA button.
-   - **Features/Benefits Grid**: 3-column layout showing cards with icons, bold titles (H3), and clean description.
-   - **Services Grid**: 2-column or 3-column layout highlighting specialized services (e.g., "Manhattan Residential Deep Cleaning", "Brooklyn Office Sanitization").
-   - **Testimonials Section**: Blockquote styled like cards with quote icons.
-4. User Guidance on Global Configs:
-   - Explain to the user that post content execution can be done via 1-click apply, but global theme settings (menu navigation, header logo, homepage settings, favicon) are global WordPress configurations.
-   - In your chat reply text, ALWAYS provide a clean, step-by-step markdown checklist instructing them how to set these up in 30 seconds:
-     1. **Set Homepage**: Go to Settings -> Reading -> Select "A static page" -> Set Homepage to Home.
-     2. **Add Logo & Favicon**: Go to Appearance -> Customize -> Site Identity and upload your logo and favicon.
-     3. **Create Menu**: Go to Appearance -> Menus, add your pages, and check the "Primary Menu" location.
+CRITICAL RULE FOR update_post_content:
+- When updating a heading (H1/H2), title, text block, or specific section on a page, suggestedValue MUST contain the ENTIRE page raw_content with ALL existing blocks, paragraphs, and images intact.
+- NEVER return only the standalone modified heading or single block in suggestedValue, as that will overwrite and erase the rest of the page!
 
-FOR ALL CHANGE/FIX/UPDATE/REDESIGN REQUESTS, YOU MUST APPEND PROPOSAL_JSON AT THE VERY END AS A CLEAN JSON OBJECT:
+FOR ALL OPERATIONAL CHANGE REQUESTS, APPEND PROPOSAL_JSON AT THE VERY END AS A CLEAN JSON OBJECT:
 PROPOSAL_JSON:
 {
   "ruleId": "CONTENT_001",
@@ -777,8 +720,64 @@ PROPOSAL_JSON:
   "affectedUrl": "/page-slug",
   "entityId": 123,
   "currentValue": "Full Original raw_content",
-  "suggestedValue": "Full Modified raw_content"
+  "suggestedValue": "Full Modified raw_content (preserving ALL existing page blocks)"
 }`;
+
+    const isAltTextRequest = /(alt text|alt-text|missing alt|image alt)/i.test(cleanPrompt);
+    const explicitlyReferencesHistory = /(previous|earlier|above|last message|before|as I said)/i.test(cleanPrompt);
+    const historyToPass = (isAltTextRequest && !explicitlyReferencesHistory) ? [] : chatHistory.slice(-4);
+
+    // SELECTIVE HYBRID VISION ARCHITECTURE: Evaluate image metadata quality
+    let userMessagePayload: any = cleanPrompt;
+    if (isAltTextRequest && siteMedia.length > 0) {
+      const isAmbiguous = (m: any) => {
+        const title = (m.title || "").trim().toLowerCase();
+        const fname = (m.url ? m.url.split("/").pop() : "").toLowerCase();
+        if (!title || title.length < 4 || title === "unnamed" || title === "untitled") return true;
+        if (/^(unnamed|image\d*|img_\d*|media-\d+-[a-z0-9]+|uploaded-image-\d+-[a-z0-9]+|sideloaded-stock-asset)/i.test(title)) return true;
+        if (/^(unnamed|image\d*|img_\d*|media-\d+-[a-z0-9]+|uploaded-image-\d+-[a-z0-9]+|sideloaded-stock-asset)/i.test(fname)) return true;
+        return false;
+      };
+
+      const targetPageItem = allInventoryItems.find(i => lowerPrompt.includes((i.title || "").toLowerCase()) || lowerPrompt.includes((i.slug || "").toLowerCase())) || allInventoryItems.find(i => (i.title || "").toLowerCase() === "home");
+      const targetPageId = targetPageItem?.id || 54;
+      const pageMedia = siteMedia.filter(m => m.parent_post_id === targetPageId || (targetPageItem && targetPageItem.raw_content && targetPageItem.raw_content.includes(m.url)));
+      const candidateMedia = pageMedia.length > 0 ? pageMedia : siteMedia;
+
+      const ambiguousMedia = candidateMedia.filter(m => m.url && m.url.startsWith("http") && isAmbiguous(m)).slice(0, 6);
+      if (ambiguousMedia.length > 0) {
+        console.log(`[Selective Hybrid Vision] Attaching visual inspection payloads for ${ambiguousMedia.length} ambiguous images.`);
+        const contentParts: any[] = [
+          {
+            type: "text",
+            text: `${cleanPrompt}\n\n[NOTE FOR VISION MODEL]: The following ${ambiguousMedia.length} target images have generic filenames/titles. Inspect their visual pixel content to output 100% accurate, descriptive ALT text mapped strictly to each attachment_id:\n` + ambiguousMedia.map(m => `- Attachment ID #${m.id}: Title="${m.title}"`).join("\n")
+          }
+        ];
+
+        for (const m of ambiguousMedia) {
+          let dataUrl = m.url;
+          if (m.url.includes("hostingersite.com")) {
+            try {
+              const imgRes = await fetch(m.url);
+              if (imgRes.ok) {
+                const arrayBuffer = await imgRes.arrayBuffer();
+                const base64Str = Buffer.from(arrayBuffer).toString("base64");
+                const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+                dataUrl = `data:${mimeType};base64,${base64Str}`;
+              }
+            } catch (err) {
+              console.warn(`[Selective Hybrid Vision] Failed to convert ${m.url} to base64:`, err);
+            }
+          }
+
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: dataUrl }
+          });
+        }
+        userMessagePayload = contentParts;
+      }
+    }
 
     const openAiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -790,8 +789,8 @@ PROPOSAL_JSON:
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemMessage },
-          ...chatHistory.slice(-4),
-          { role: "user", content: cleanPrompt },
+          ...historyToPass,
+          { role: "user", content: userMessagePayload },
         ],
         temperature: 0.2,
         max_tokens: 3500,
@@ -810,14 +809,14 @@ PROPOSAL_JSON:
     }
 
     const aiData = await openAiRes.json();
-    let rawContent = aiData.choices?.[0]?.message?.content || "I have processed your request.";
+    let rawContent = aiData.choices?.[0]?.message?.content || "I have prepared the proposal for your request below. ✨";
     let fullReplyText = rawContent;
     let extractedProposal: any = null;
 
     // 1. Direct PROPOSAL_JSON keyword extraction
     if (rawContent.includes("PROPOSAL_JSON:")) {
       const parts = rawContent.split("PROPOSAL_JSON:");
-      fullReplyText = parts[0].trim();
+      fullReplyText = parts[0].trim() || "I have prepared the proposal for your request below. ✨";
       let jsonStr = parts[1].trim();
 
       jsonStr = jsonStr.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
@@ -826,9 +825,57 @@ PROPOSAL_JSON:
       if (potentialJson) {
         try {
           extractedProposal = JSON.parse(potentialJson);
-          extractedProposal = normalizeProposalObject(extractedProposal, imageAttachment);
+          extractedProposal = await normalizeProposalObject(extractedProposal, imageAttachment);
         } catch (e) {
           console.warn("[Chat API] Failed to parse OpenAI proposal JSON:", e);
+        }
+      }
+    }
+
+    // Handle site_build_request output from unified OpenAI call
+    if (extractedProposal && (extractedProposal.actionType === "site_build_request" || extractedProposal.actionType === "build_website")) {
+      const nicheKeyword = (extractedProposal.niche || "").trim();
+      if (nicheKeyword && nicheKeyword.length > 0) {
+        const businessName = extractedProposal.business_name || site.name || `${nicheKeyword} Business`;
+        const homepageTitle = businessName;
+
+        if (!genState) genState = {};
+        genState.status = "BUILDING";
+        genState.current_milestone = 1;
+        genState.logs = [`[${new Date().toLocaleTimeString()}] Initializing autonomous background site builder for ${businessName}...`];
+
+        const currentMemory = await prisma.siteMemory.findFirst({
+          where: { siteId: site.id, key: "site_generation_state" },
+        });
+        if (currentMemory) {
+          await prisma.siteMemory.update({
+            where: { id: currentMemory.id },
+            data: { value: JSON.stringify(genState) },
+          });
+        }
+
+        // Trigger background build asynchronously
+        runAutonomousBuild(site.id, {
+          niche: nicheKeyword,
+          business_name: businessName
+        }).catch(err => {
+          console.error("Autonomous background builder error:", err);
+        });
+
+        return NextResponse.json({
+          reply: `⚙️ **Autonomous Site Builder Activated!** ⚙️\n\nI have successfully launched the background builder pipeline to construct your professional **${homepageTitle}** website:\n\n* **Niche & Brand**: ${nicheKeyword.toUpperCase()} business.\n* **Branding Color Theme**: Compiled using modern responsive block styles.\n* **Pages Construction**: Creating Home page, Services page, About Us, and Contact page.\n* **Dynamic Asset Import**: Sideloading professional high-resolution stock photos.\n\n*Please wait... I will display real-time background logs directly in the chat below!* 🚀`,
+          proposalDraft: null,
+          site: { id: site.id, name: site.name, url: site.url },
+          generationState: genState,
+          requireAuth: false,
+          requireSite: false,
+          suggestions: []
+        });
+      } else {
+        // Niche missing -> Clear proposal draft & ask for clarification
+        extractedProposal = null;
+        if (!fullReplyText || fullReplyText.length < 10) {
+          fullReplyText = `👋 What kind of business or niche would you like to build your website for? (e.g., Gaming Hub, Cleaning Company, Dental Clinic, Restaurant, AI Portfolio)`;
         }
       }
     }
@@ -840,7 +887,7 @@ PROPOSAL_JSON:
         try {
           const parsed = JSON.parse(potentialJson);
           if (parsed.actionType || parsed.suggestedValue || parsed.proposedValue || parsed.ruleId) {
-            extractedProposal = normalizeProposalObject(parsed, imageAttachment);
+            extractedProposal = await normalizeProposalObject(parsed, imageAttachment);
             const firstBrace = rawContent.indexOf("{");
             fullReplyText = rawContent.slice(0, firstBrace).trim() || "I have prepared the proposal for your request below. ✨";
           }
@@ -855,45 +902,156 @@ PROPOSAL_JSON:
       .trim();
 
     // 3. FAILSAFE PROPOSAL GENERATOR: Guarantee proposal generation for any edit/redesign request
-    const isChangeRequest = /(change|update|replace|remove|delete|add|fix|rename|set|email|heading|h1|meta|title|content|redesign|banner|cards|section|upgrade|improve|style)/i.test(cleanPrompt);
+    const isClarificationReply = /(could you please specify|please specify the|please provide the|what kind of business|which business niche|what focus keyphrase)/i.test(fullReplyText);
+    const isCreateRequest = /(create.*post|create.*page|add.*post|add.*page|new.*post|new.*page|publish.*post|publish.*page|create.*article|new.*article)/i.test(cleanPrompt);
+    const isImageAddRequest = /(add.*image|insert.*image|put.*image|image.*add|add.*photo|insert.*photo|picture.*add|add.*picture)/i.test(cleanPrompt);
+    const isAltFailsafeRequest = /(alt.*text|text.*alt|alt.*tag|missing.*alt|fix.*alt|add.*alt)/i.test(cleanPrompt);
+    const isChangeRequest = /(change|update|replace|remove|delete|add|fix|rename|set|email|heading|h1|meta|title|content|redesign|banner|cards|section|upgrade|improve|style|create|publish|make|post|page|article)/i.test(cleanPrompt);
 
-    if (!extractedProposal && isChangeRequest && allInventoryItems.length > 0) {
-      // Find target item by prompt matching or default to About Us or first item
-      const targetItem = allInventoryItems.find((i) =>
-        lowerPrompt.includes((i.title || "").toLowerCase()) ||
-        lowerPrompt.includes((i.slug || "").toLowerCase())
-      ) || sitePages.find((p) => (p.title || "").toLowerCase().includes("about")) || allInventoryItems[0];
-
-      if (targetItem) {
-        const origRaw = targetItem.raw_content || "";
-        let modRaw = origRaw;
-
-        // Smart text replacement for emails or general strings
-        const emailMatch = cleanPrompt.match(/(["']?[\w.-]+@[\w.-]+\.\w+["']?)\s*(?:to|with|=|->)\s*(["']?[\w.-]+@[\w.-]+\.\w+["']?)/i);
-        if (emailMatch) {
-          const oldEmail = emailMatch[1].replace(/["']/g, "").trim();
-          const newEmail = emailMatch[2].replace(/["']/g, "").trim();
-          if (origRaw.includes(oldEmail)) {
-            modRaw = origRaw.replaceAll(oldEmail, newEmail);
-          } else {
-            modRaw = origRaw + `\n<!-- wp:paragraph -->\n<p>Contact: ${newEmail}</p>\n<!-- /wp:paragraph -->`;
-          }
-        }
+    if (!extractedProposal && !isClarificationReply && (isCreateRequest || isImageAddRequest || isAltFailsafeRequest || isChangeRequest)) {
+      if (isCreateRequest) {
+        const isPost = /(blog|article|news|post)/i.test(cleanPrompt);
+        const pType = isPost ? "post" : "page";
+        const rawTitle = cleanPrompt.replace(/\b(create|publish|add|make|a|an|new|post|page|article|about|for|on)\b/gi, "").replace(/\s+/g, " ").trim();
+        const formattedTitle = rawTitle.length > 0 ? (rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1)) : (isPost ? "New Blog Post" : "New Page");
 
         extractedProposal = {
-          ruleId: "CONTENT_001",
+          ruleId: "CONTENT_006",
           category: "content_quality",
-          actionType: "update_post_content",
-          fieldLabel: "Page Body Content",
-          pageTitle: targetItem.title || "Target Page",
-          affectedUrl: `/${targetItem.slug || "page"}`,
-          entityId: targetItem.id,
-          currentValue: origRaw,
-          suggestedValue: modRaw,
+          actionType: "create_post",
+          fieldLabel: isPost ? "New Blog Post" : "New Page",
+          pageTitle: formattedTitle,
+          affectedUrl: isPost ? "/blog" : `/${formattedTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}`,
+          entityId: 0,
+          suggestedValue: {
+            title: formattedTitle,
+            post_title: formattedTitle,
+            content: `<!-- wp:paragraph -->\n<p>Welcome to ${formattedTitle}.</p>\n<!-- /wp:paragraph -->`,
+            post_content: `<!-- wp:paragraph -->\n<p>Welcome to ${formattedTitle}.</p>\n<!-- /wp:paragraph -->`,
+            post_type: pType,
+            post_status: "publish",
+          },
         };
+        console.log(`[Chat API Failsafe] Auto-generated create_post proposal (type: ${pType}, title: "${formattedTitle}").`);
+      } else if (allInventoryItems.length > 0) {
+        // Find target item by prompt matching or default to Home or first item
+        const targetItem = allInventoryItems.find((i) =>
+          lowerPrompt.includes((i.title || "").toLowerCase()) ||
+          lowerPrompt.includes((i.slug || "").toLowerCase())
+        ) || sitePages.find((p) => (p.title || "").toLowerCase().includes("home")) || allInventoryItems[0];
 
-        console.log(`[Chat API Failsafe] Auto-generated proposal card for target page "${targetItem.title}" (#${targetItem.id}).`);
+        if (targetItem) {
+        if (isAltFailsafeRequest && siteMedia.length > 0) {
+          // Dedicated failsafe for ALT text update requests
+          const altTargets = siteMedia.map((m) => {
+            const attachTitle = m.title || "Media Image";
+            const parentPage = m.parent_post_title || targetItem.title || "Target Page";
+            let contextualAlt = m.caption ? `${attachTitle}: ${m.caption} (${parentPage})` : `${attachTitle} in ${parentPage} section`;
+            return {
+              attachment_id: m.id,
+              image_url: m.url,
+              alt_text: contextualAlt,
+            };
+          });
+
+          extractedProposal = {
+            ruleId: "MEDIA_001",
+            category: "media",
+            actionType: "update_alt_text",
+            fieldLabel: "Image Alt Text",
+            pageTitle: `${altTargets.length} Media Library Images`,
+            affectedUrl: "/wp-admin/upload.php",
+            entityId: altTargets[0]?.attachment_id || 0,
+            suggestedValue: {
+              targets: altTargets,
+            },
+          };
+          console.log(`[Chat API Failsafe] Auto-generated update_alt_text proposal for ${altTargets.length} media items.`);
+        } else if (isImageAddRequest) {
+          // Dedicated failsafe for image addition requests
+          let sampleImg = imageAttachment?.dataUrl || "";
+          let altTxt = `Visual image for ${targetItem.title}`;
+
+          if (!sampleImg) {
+            const promptTopic = cleanPrompt.replace(/\b(add|insert|put|image|photo|picture|on|to|the|home|page|homepage|a|an|visual)\b/gi, "").replace(/\s+/g, " ").trim();
+            const dynamicRes = await fetchDynamicTopicImage(promptTopic || targetItem.title);
+            sampleImg = dynamicRes.url;
+            altTxt = dynamicRes.alt;
+          } else {
+            altTxt = `Uploaded image for ${targetItem.title}`;
+          }
+
+          if (sampleImg) {
+            extractedProposal = {
+              ruleId: "MEDIA_002",
+              category: "media",
+              actionType: "add_image",
+              fieldLabel: "Add Image Block",
+              pageTitle: targetItem.title || "Target Page",
+              affectedUrl: `/${targetItem.slug || "page"}`,
+              entityId: targetItem.id,
+              suggestedValue: {
+                image_url: sampleImg,
+                alt_text: altTxt,
+                placement: "append",
+              },
+            };
+            console.log(`[Chat API Failsafe] Auto-generated add_image proposal for target page "${targetItem.title}" (#${targetItem.id}).`);
+          } else {
+            extractedProposal = null;
+            fullReplyText = `⚠️ **Pexels Image Search Unavailable**: Could not retrieve a stock image for "${cleanPrompt}". Please check your \`PEXELS_API_KEY\` in \`saas/.env\` or upload an image file directly from your computer.`;
+          }
+        } else {
+          const origRaw = targetItem.raw_content || "";
+          let modRaw = origRaw;
+
+          // Smart H1 / Heading text replacement
+          const headingMatch = cleanPrompt.match(/(?:change|update|set|replace|make)\s*(?:the\s*)?(?:h1|heading|header|title)\s*(?:to|=|->|as)?\s*(["']?[\w\s.,!'-]+["']?)/i) || cleanPrompt.match(/h1\s*(?:heading|header)?\s*(?:to|=|->|as)?\s*(["']?[\w\s.,!'-]+["']?)/i);
+          if (headingMatch && headingMatch[1]) {
+            const newHeading = headingMatch[1].replace(/["']/g, "").trim();
+            if (newHeading) {
+              if (origRaw.includes("<h1") || origRaw.includes("wp:heading")) {
+                modRaw = origRaw.replace(/(<h1[^>]*>)(.*?)(<\/h1>)/gi, `$1${newHeading}$3`)
+                                .replace(/(<!-- wp:heading [^>]*-->\s*<h[1-6][^>]*>)(.*?)(<\/h[1-6]>\s*<!-- \/wp:heading -->)/gi, `$1${newHeading}$3`);
+              } else {
+                modRaw = `<!-- wp:heading {"level":1} -->\n<h1>${newHeading}</h1>\n<!-- /wp:heading -->\n` + origRaw;
+              }
+            }
+          }
+
+          // Smart text replacement for emails or general strings
+          const emailMatch = cleanPrompt.match(/(["']?[\w.-]+@[\w.-]+\.\w+["']?)\s*(?:to|with|=|->)\s*(["']?[\w.-]+@[\w.-]+\.\w+["']?)/i);
+          if (emailMatch) {
+            const oldEmail = emailMatch[1].replace(/["']/g, "").trim();
+            const newEmail = emailMatch[2].replace(/["']/g, "").trim();
+            if (origRaw.includes(oldEmail)) {
+              modRaw = origRaw.replaceAll(oldEmail, newEmail);
+            } else {
+              modRaw = origRaw + `\n<!-- wp:paragraph -->\n<p>Contact: ${newEmail}</p>\n<!-- /wp:paragraph -->`;
+            }
+          }
+
+          extractedProposal = {
+            ruleId: "CONTENT_001",
+            category: "content_quality",
+            actionType: "update_post_content",
+            fieldLabel: "Page Body Content",
+            pageTitle: targetItem.title || "Target Page",
+            affectedUrl: `/${targetItem.slug || "page"}`,
+            entityId: targetItem.id,
+            currentValue: origRaw,
+            suggestedValue: modRaw,
+          };
+
+          console.log(`[Chat API Failsafe] Auto-generated proposal card for target page "${targetItem.title}" (#${targetItem.id}).`);
+        }
       }
+    }
+    }
+
+    if (extractedProposal && extractedProposal.actionType === "add_image" && !imageAttachment && (!extractedProposal.suggestedValue?.image_url || !extractedProposal.suggestedValue?.image_url.startsWith("http"))) {
+      extractedProposal = null;
+      fullReplyText = `⚠️ **Pexels Image Search Unavailable**: Could not retrieve a stock image for "${cleanPrompt}". Please check your \`PEXELS_API_KEY\` in \`saas/.env\` or upload an image file directly from your computer.`;
     }
 
     return NextResponse.json({
@@ -908,6 +1066,71 @@ PROPOSAL_JSON:
     console.error("[Chat API Exception]:", error);
     return NextResponse.json({ error: `Chat processing error: ${error.message}` }, { status: 500 });
   }
+}
+
+function getPexelsApiKey(): string | null {
+  if (process.env.PEXELS_API_KEY && process.env.PEXELS_API_KEY.trim()) {
+    return process.env.PEXELS_API_KEY.trim().replace(/^["']|["']$/g, "");
+  }
+
+  try {
+    const envPath = path.resolve(process.cwd(), ".env");
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, "utf-8");
+      const match = envContent.match(/PEXELS_API_KEY=["']?([^"'\s\r\n]+)["']?/);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+  } catch (err) {}
+
+  return null;
+}
+
+async function fetchDynamicTopicImage(queryTopic: string): Promise<{ url: string; alt: string }> {
+  const cleanTopic = (queryTopic || "")
+    .replace(/\b(add|insert|put|image|photo|picture|on|to|the|home|page|homepage|a|an|visual)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim() || "nature";
+
+  const formattedTopic = cleanTopic.charAt(0).toUpperCase() + cleanTopic.slice(1);
+  const pexelsKey = getPexelsApiKey();
+
+  if (!pexelsKey) {
+    console.warn(`[Pexels API Search] No PEXELS_API_KEY configured in environment for query "${cleanTopic}".`);
+    return { url: "", alt: "" };
+  }
+
+  try {
+    const pexelsRes = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(cleanTopic)}&per_page=5`,
+      {
+        headers: {
+          Authorization: pexelsKey,
+        },
+      }
+    );
+
+    if (pexelsRes.ok) {
+      const pexelsData = await pexelsRes.json();
+      if (pexelsData.photos && pexelsData.photos.length > 0) {
+        const photo = pexelsData.photos[Math.floor(Math.random() * Math.min(pexelsData.photos.length, 3))] || pexelsData.photos[0];
+        const realImgUrl = photo.src?.landscape || photo.src?.large2x || photo.src?.large || photo.src?.original;
+        const realAlt = photo.alt || `${formattedTopic} visual`;
+        if (realImgUrl) {
+          console.log(`[Pexels API Search] Selected image for topic "${cleanTopic}": ${realImgUrl}`);
+          return { url: realImgUrl, alt: realAlt };
+        }
+      }
+    } else {
+      console.warn(`[Pexels API Search] Pexels API returned HTTP ${pexelsRes.status} for query "${cleanTopic}".`);
+    }
+  } catch (err) {
+    console.error("[Pexels API Search Error]:", err);
+  }
+
+  // NO HARDCODED IMAGE FALLBACK - Return empty if API search fails or key is invalid
+  return { url: "", alt: "" };
 }
 
 function extractFirstJsonObject(str: string): string | null {
@@ -927,11 +1150,99 @@ function extractFirstJsonObject(str: string): string | null {
   return null;
 }
 
-function normalizeProposalObject(proposal: any, imageAttachment: any): any {
+async function normalizeProposalObject(proposal: any, imageAttachment: any): Promise<any> {
   if (!proposal) return proposal;
 
   if (proposal.proposedValue !== undefined && proposal.suggestedValue === undefined) {
     proposal.suggestedValue = proposal.proposedValue;
+  }
+
+  // Normalize update_post_content to preserve existing page content when replacing headings
+  if (proposal.actionType === "update_post_content") {
+    const curVal = typeof proposal.currentValue === "string" ? proposal.currentValue : "";
+    let sugVal = typeof proposal.suggestedValue === "string" ? proposal.suggestedValue : (typeof proposal.suggestedValue === "object" && proposal.suggestedValue ? (proposal.suggestedValue.content || proposal.suggestedValue.value || "") : "");
+
+    // If suggestedValue contains a single h1/heading block and is significantly shorter than currentValue, MERGE it into currentValue so no page content is lost!
+    if (curVal && sugVal && sugVal.length < curVal.length * 0.7 && (sugVal.includes("<h1") || sugVal.includes("<h2") || sugVal.includes("wp:heading"))) {
+      const headingMatch = sugVal.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/i) || sugVal.match(/<!-- wp:heading [^>]*-->\s*(.*?)\s*<!-- \/wp:heading -->/is);
+      if (headingMatch) {
+        const newHeadingText = headingMatch[1].replace(/<[^>]+>/g, "").trim();
+        if (newHeadingText) {
+          if (curVal.includes("<h1") || curVal.includes("wp:heading")) {
+            sugVal = curVal.replace(/(<h1[^>]*>)(.*?)(<\/h1>)/gi, `$1${newHeadingText}$3`)
+                           .replace(/(<!-- wp:heading [^>]*-->\s*<h[1-6][^>]*>)(.*?)(<\/h[1-6]>\s*<!-- \/wp:heading -->)/gi, `$1${newHeadingText}$3`);
+          } else {
+            sugVal = `<!-- wp:heading {"level":1} -->\n<h1>${newHeadingText}</h1>\n<!-- /wp:heading -->\n` + curVal;
+          }
+          console.log(`[Chat API Normalizer] Merged updated H1 heading ("${newHeadingText}") into full page raw_content (${curVal.length} chars preserved).`);
+        }
+      }
+    }
+
+    proposal.currentValue = curVal;
+    proposal.suggestedValue = sugVal || curVal;
+  }
+
+  // Normalize update_alt_text into frontend proposal card shape
+  if (proposal.actionType === "update_alt_text" || proposal.ruleId === "MEDIA_001" || Array.isArray(proposal.targets)) {
+    proposal.actionType = "update_alt_text";
+    proposal.ruleId = proposal.ruleId || "MEDIA_001";
+    proposal.fieldLabel = proposal.fieldLabel || "Image Alt Text";
+    proposal.affectedUrl = proposal.affectedUrl || "/wp-admin/upload.php";
+
+    if (Array.isArray(proposal.targets) && proposal.targets.length > 0) {
+      proposal.pageTitle = proposal.pageTitle || `${proposal.targets.length} Media Library Images`;
+      proposal.entityId = proposal.entityId || proposal.targets[0].attachment_id || 0;
+      proposal.suggestedValue = { targets: proposal.targets };
+    } else {
+      const attId = proposal.attachment_id || proposal.entityId || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue ? proposal.suggestedValue.attachment_id : 0) || 0;
+      let altTxt = proposal.alt_text;
+      if (!altTxt && typeof proposal.suggestedValue === "object" && proposal.suggestedValue !== null) {
+        altTxt = proposal.suggestedValue.alt_text || proposal.suggestedValue.value;
+      }
+      if (!altTxt && typeof proposal.suggestedValue === "string") {
+        altTxt = proposal.suggestedValue;
+      }
+      altTxt = altTxt || "";
+
+      proposal.pageTitle = proposal.pageTitle || (attId ? `Attachment #${attId}` : "Media Image Alt Text");
+      proposal.entityId = attId;
+      proposal.suggestedValue = {
+        attachment_id: attId,
+        alt_text: altTxt
+      };
+    }
+  }
+
+  // Normalize add_image into frontend proposal card shape
+  if (proposal.actionType === "add_image" || proposal.ruleId === "MEDIA_002") {
+    proposal.actionType = "add_image";
+    proposal.ruleId = proposal.ruleId || "MEDIA_002";
+    proposal.fieldLabel = proposal.fieldLabel || "Add Image Block";
+    proposal.pageTitle = proposal.pageTitle || (proposal.entityId ? `Page ID #${proposal.entityId}` : "Page Image Addition");
+    proposal.affectedUrl = proposal.affectedUrl || "/";
+    proposal.entityId = proposal.entityId || proposal.target_post_id || 1;
+
+    let imgUrl = proposal.image_url || proposal.image_source || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue ? (proposal.suggestedValue.image_url || proposal.suggestedValue.image_source || proposal.suggestedValue.src) : "") || (typeof proposal.suggestedValue === "string" ? proposal.suggestedValue : "");
+    
+    // IF USER ATTACHED AN IMAGE FROM DESKTOP, ALWAYS USE THE ATTACHED IMAGE DATAURL
+    if (imageAttachment && imageAttachment.dataUrl) {
+      imgUrl = imageAttachment.dataUrl;
+    } else if (!imgUrl || !imgUrl.startsWith("http") || imgUrl.includes("source.unsplash.com") || imgUrl.includes("example.com")) {
+      const promptTopic = proposal.topic || proposal.pageTitle || "visual";
+      const dynamicRes = await fetchDynamicTopicImage(promptTopic);
+      imgUrl = dynamicRes.url;
+      if (!proposal.alt_text) proposal.alt_text = dynamicRes.alt;
+    }
+
+    const altTxt = proposal.alt_text || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue ? proposal.suggestedValue.alt_text : "") || "";
+    const placement = proposal.placement || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue ? proposal.suggestedValue.placement : "") || "append";
+
+    proposal.suggestedValue = {
+      image_url: imgUrl,
+      alt_text: altTxt,
+      placement: placement
+    };
   }
 
   if (proposal.actionType === "set_site_logo" && imageAttachment) {
@@ -942,11 +1253,24 @@ function normalizeProposalObject(proposal: any, imageAttachment: any): any {
     }
   }
 
-  if (proposal.actionType === "create_post" && proposal.suggestedValue === undefined) {
+  // Normalize create_post into frontend proposal card shape with proper post_type resolution (post vs page)
+  if (proposal.actionType === "create_post") {
+    const titleOrTypeStr = `${proposal.title || ""} ${proposal.pageTitle || ""} ${proposal.post_type || ""} ${JSON.stringify(proposal.suggestedValue || {})}`.toLowerCase();
+    const isPost = proposal.post_type === "post" || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue?.post_type === "post") || titleOrTypeStr.includes("post") || titleOrTypeStr.includes("article") || titleOrTypeStr.includes("blog") || titleOrTypeStr.includes("news");
+    const pType = isPost ? "post" : "page";
+    const pTitle = proposal.title || proposal.pageTitle || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.title || proposal.suggestedValue?.post_title : "") || (isPost ? "New Blog Post" : "New Page");
+    const pContent = proposal.content || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.content || proposal.suggestedValue?.post_content : "") || "";
+
+    proposal.ruleId = proposal.ruleId || "CONTENT_006";
+    proposal.fieldLabel = isPost ? "New Blog Post" : "New Page";
+    proposal.pageTitle = pTitle;
+
     proposal.suggestedValue = {
-      title: proposal.title || proposal.pageTitle || "New Page",
-      content: proposal.content || "",
-      post_type: proposal.post_type || "page",
+      title: pTitle,
+      post_title: pTitle,
+      content: pContent,
+      post_content: pContent,
+      post_type: pType,
       post_status: proposal.post_status || "publish",
     };
   }
@@ -971,7 +1295,7 @@ function normalizeProposalObject(proposal: any, imageAttachment: any): any {
 
 
 async function runAutonomousBuild(siteId: string, classifierObj: any) {
-  const nicheKeyword = (classifierObj.niche || "coffee").toLowerCase();
+  const nicheKeyword = (classifierObj.niche || "business").toLowerCase();
   const businessName = classifierObj.business_name || "My Business";
   const location = classifierObj.location || "";
   const colorTheme = (classifierObj.color_theme || "").toLowerCase();
@@ -1128,25 +1452,15 @@ async function runAutonomousBuild(siteId: string, classifierObj: any) {
       await appendLog("Building within pre-existing active theme style framework.");
     }
 
-    // Step 3: Select Stock Photos based on niche & location
-    await appendLog("Phase 3: Selecting relevant high-resolution stock photos...");
-    let unsplashHeroUrl = "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1920&q=80"; // Default cafe
-    let unsplashItem1 = "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80";
-    let unsplashItem2 = "https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?auto=format&fit=crop&w=1200&q=80";
+    // Step 3: Select Stock Photos dynamically based on niche & location
+    await appendLog("Phase 3: Fetching real-time high-resolution stock photos...");
+    const heroPhotoRes = await fetchDynamicTopicImage(`${nicheKeyword} hero website`);
+    const item1PhotoRes = await fetchDynamicTopicImage(`${nicheKeyword} service`);
+    const item2PhotoRes = await fetchDynamicTopicImage(`${nicheKeyword} professional`);
 
-    if (nicheKeyword.includes("clean")) {
-      unsplashHeroUrl = "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=1920&q=80";
-      unsplashItem1 = "https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?auto=format&fit=crop&w=1200&q=80";
-      unsplashItem2 = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80";
-    } else if (nicheKeyword.includes("dent")) {
-      unsplashHeroUrl = "https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=1920&q=80";
-      unsplashItem1 = "https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?auto=format&fit=crop&w=1200&q=80";
-      unsplashItem2 = "https://images.unsplash.com/photo-1598256989800-fe5f95da9787?auto=format&fit=crop&w=1200&q=80";
-    } else if (nicheKeyword.includes("construct")) {
-      unsplashHeroUrl = "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1920&q=80";
-      unsplashItem1 = "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1200&q=80";
-      unsplashItem2 = "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=1200&q=80";
-    }
+    const unsplashHeroUrl = heroPhotoRes.url;
+    const unsplashItem1 = item1PhotoRes.url;
+    const unsplashItem2 = item2PhotoRes.url;
 
     // Step 4: Generate Page Services List (Max 3 columns per row layout)
     await appendLog("Phase 4: Modeling custom layout for pages...");

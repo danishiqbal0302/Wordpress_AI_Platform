@@ -674,119 +674,304 @@ class WP_AI_Executor {
             }
 
             // D. Image Alt Text Updates
-            if ($action_type === 'update_alt_text' || isset($proposed_values['alt_text']) || isset($proposed_values['alt'])) {
-                $alt_val = '';
-                if (is_array($proposed_values)) {
-                    if (isset($proposed_values['alt_text'])) {
-                        $alt_val = $proposed_values['alt_text'];
-                    } elseif (isset($proposed_values['value'])) {
-                        $alt_val = $proposed_values['value'];
-                    } elseif (isset($proposed_values['alt'])) {
-                        $alt_val = $proposed_values['alt'];
+            if ($action_type === 'update_alt_text' || isset($proposed_values['alt_text']) || isset($proposed_values['targets']) || isset($proposed_values['alt_map'])) {
+                $targets = array();
+
+                if (isset($proposed_values['targets']) && is_array($proposed_values['targets'])) {
+                    $targets = $proposed_values['targets'];
+                } elseif (isset($proposed_values['alt_map']) && is_array($proposed_values['alt_map'])) {
+                    foreach ($proposed_values['alt_map'] as $key => $alt) {
+                        $targets[] = array(
+                            'attachment_id' => is_numeric($key) ? intval($key) : 0,
+                            'image_url'     => !is_numeric($key) ? $key : '',
+                            'alt_text'      => $alt,
+                        );
                     }
-                } elseif (is_string($proposed_values)) {
-                    $alt_val = $proposed_values;
+                } else {
+                    $single_alt = '';
+                    if (isset($proposed_values['alt_text'])) {
+                        $single_alt = $proposed_values['alt_text'];
+                    } elseif (isset($proposed_values['value'])) {
+                        $single_alt = $proposed_values['value'];
+                    } elseif (isset($proposed_values['alt'])) {
+                        $single_alt = $proposed_values['alt'];
+                    }
+
+                    $targets[] = array(
+                        'attachment_id' => $post_id,
+                        'alt_text'      => $single_alt,
+                    );
                 }
 
-                $alt_val = sanitize_text_field($alt_val);
+                $updated_count = 0;
+                $failed_count  = 0;
+                $details       = array();
 
-                if (!empty($alt_val)) {
-                    update_post_meta($post_id, '_wp_attachment_image_alt', wp_slash($alt_val));
-                    clean_post_cache($post_id);
+                foreach ($targets as $target) {
+                    $att_id  = isset($target['attachment_id']) ? intval($target['attachment_id']) : 0;
+                    $img_url = isset($target['image_url']) ? $target['image_url'] : '';
+                    $alt_txt = isset($target['alt_text']) ? sanitize_text_field($target['alt_text']) : '';
 
-                    $target_post = get_post($post_id);
-                    if ($target_post) {
-                        $posts_to_update = array();
-                        if ($target_post->post_type === 'attachment' && $target_post->post_parent > 0) {
-                            $parent_p = get_post($target_post->post_parent);
-                            if ($parent_p) {
-                                $posts_to_update[] = $parent_p;
+                    if (!$att_id && !empty($img_url)) {
+                        $att_id = attachment_url_to_postid($img_url);
+                    }
+
+                    if ($att_id > 0) {
+                        // 1. Update Media Library Postmeta
+                        update_post_meta($att_id, '_wp_attachment_image_alt', wp_slash($alt_txt));
+                        clean_post_cache($att_id);
+
+                        // Verify postmeta update immediately
+                        $verified_meta = get_post_meta($att_id, '_wp_attachment_image_alt', true);
+                        $meta_ok = ($verified_meta === $alt_txt);
+
+                        // 2. Search & Update all embedded occurrences across pages/posts
+                        $att_url = wp_get_attachment_url($att_id);
+                        $att_file_basename = $att_url ? wp_basename($att_url) : '';
+
+                        // Collect target posts referencing this attachment
+                        $query_posts = get_posts(array(
+                            'post_type'      => array('page', 'post'),
+                            'post_status'    => 'any',
+                            'posts_per_page' => -1,
+                            's'              => (string)$att_id
+                        ));
+
+                        $att_post = get_post($att_id);
+                        if ($att_post && $att_post->post_parent > 0) {
+                            $parent_p = get_post($att_post->post_parent);
+                            if ($parent_p && !in_array($parent_p, $query_posts)) {
+                                $query_posts[] = $parent_p;
                             }
-                        } elseif ($target_post->post_type !== 'attachment') {
-                            $posts_to_update[] = $target_post;
-                            $attached_images = get_attached_media('image', $post_id);
-                            if (!empty($attached_images)) {
-                                foreach ($attached_images as $att_img) {
-                                    update_post_meta($att_img->ID, '_wp_attachment_image_alt', wp_slash($alt_val));
-                                    clean_post_cache($att_img->ID);
-                                }
+                        }
+                        if ($post_id > 0) {
+                            $target_p = get_post($post_id);
+                            if ($target_p && !in_array($target_p, $query_posts)) {
+                                $query_posts[] = $target_p;
                             }
                         }
 
-                        foreach ($posts_to_update as $p_item) {
-                            $orig_elem_data = get_post_meta($p_item->ID, '_elementor_data', true);
-                            $snapshot_data['parent_posts'][] = array(
-                                'post_id'        => $p_item->ID,
-                                'post_content'   => $p_item->post_content,
-                                'elementor_data' => $orig_elem_data,
+                        $embedded_updated = false;
+                        foreach ($query_posts as $p) {
+                            if (empty($p->post_content)) continue;
+
+                            $content_changed = false;
+                            $updated_content = preg_replace_callback(
+                                '/(<!--\s*wp:image\s*(\{[^}]*\})\s*-->\s*)?<figure[^>]*>\s*<img\s+([^>]*?)>\s*<\/figure>(\s*<!--\s*\/wp:image\s*-->)?|<img\s+([^>]*?)>/is',
+                                function ($matches) use ($att_id, $att_url, $att_file_basename, $alt_txt, &$content_changed) {
+                                    $full_tag = $matches[0];
+
+                                    // Match exact attachment ID criteria:
+                                    // 1. wp-image-{att_id} class
+                                    // 2. "id":{att_id} in Gutenberg JSON block comment
+                                    // 3. Exact attachment URL or filename match in src
+                                    $is_target_image = (
+                                        strpos($full_tag, 'wp-image-' . $att_id) !== false ||
+                                        strpos($full_tag, '"id":' . $att_id) !== false ||
+                                        ($att_url && strpos($full_tag, $att_url) !== false) ||
+                                        ($att_file_basename && strpos($full_tag, $att_file_basename) !== false)
+                                    );
+
+                                    if ($is_target_image) {
+                                        $content_changed = true;
+                                        if (preg_match('/alt=([\'"])(.*?)\1/is', $full_tag)) {
+                                            return preg_replace('/alt=([\'"])(.*?)\1/is', 'alt="' . esc_attr($alt_txt) . '"', $full_tag);
+                                        } else {
+                                            return preg_replace('/<img\s+/i', '<img alt="' . esc_attr($alt_txt) . '" ', $full_tag, 1);
+                                        }
+                                    }
+
+                                    return $full_tag;
+                                },
+                                $p->post_content
                             );
 
-                            if (!empty($p_item->post_content)) {
-                                $updated_content = preg_replace_callback(
-                                    '/<img\s+([^>]*?)>/i',
-                                    function ($matches) use ($alt_val) {
-                                        $img_tag = $matches[0];
-                                        if (preg_match('/alt=([\'"])(.*?)\1/i', $img_tag)) {
-                                            return preg_replace('/alt=([\'"])(.*?)\1/i', 'alt="' . esc_attr($alt_val) . '"', $img_tag);
-                                        } else {
-                                            return str_replace('<img ', '<img alt="' . esc_attr($alt_val) . '" ', $img_tag);
-                                        }
-                                    },
-                                    $p_item->post_content
-                                );
-
-                                if (strpos($updated_content, '<!-- wp:image') !== false) {
-                                    $updated_content = preg_replace_callback(
-                                        '/<!--\s+wp:image\s+(\{.*?\})\s+-->/s',
-                                        function ($matches) use ($alt_val) {
-                                            $json_str = $matches[1];
-                                            $data = json_decode($json_str, true);
-                                            if (is_array($data)) {
-                                                $data['alt'] = $alt_val;
-                                                $new_json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-                                                return '<!-- wp:image ' . $new_json . ' -->';
-                                            }
-                                            return $matches[0];
-                                        },
-                                        $updated_content
-                                    );
-                                }
-
-                                if ($updated_content !== $p_item->post_content) {
-                                    wp_update_post(array(
-                                        'ID'           => $p_item->ID,
-                                        'post_content' => $updated_content,
-                                    ));
-                                    clean_post_cache($p_item->ID);
-                                }
-                            }
-
-                            $elementor_data = get_post_meta($p_item->ID, '_elementor_data', true);
-                            if (!empty($elementor_data) && is_string($elementor_data)) {
-                                $updated_elementor = preg_replace_callback(
-                                    '/"alt":\s*"([^"]*)"/i',
-                                    function () use ($alt_val) {
-                                        return '"alt":"' . esc_js($alt_val) . '"';
-                                    },
-                                    $elementor_data
-                                );
-                                if ($updated_elementor !== $elementor_data) {
-                                    update_post_meta($p_item->ID, '_elementor_data', wp_slash($updated_elementor));
-                                    clean_post_cache($p_item->ID);
-                                }
+                            if ($content_changed && $updated_content !== $p->post_content) {
+                                wp_update_post(array('ID' => $p->ID, 'post_content' => wp_slash($updated_content)));
+                                clean_post_cache($p->ID);
+                                $embedded_updated = true;
                             }
                         }
 
-                        update_option($snapshot_id, $snapshot_data, false);
+                        if ($meta_ok) {
+                            $updated_count++;
+                            $details[] = array(
+                                'attachment_id'    => $att_id,
+                                'status'           => 'updated',
+                                'alt_text'         => $alt_txt,
+                                'meta_verified'    => true,
+                                'embedded_updated' => $embedded_updated
+                            );
+                        } else {
+                            $failed_count++;
+                            $details[] = array(
+                                'attachment_id' => $att_id,
+                                'status'        => 'failed_verification',
+                                'reason'        => 'Postmeta update verification failed'
+                            );
+                        }
+                    } else {
+                        $failed_count++;
+                        $details[] = array(
+                            'attachment_id' => $att_id,
+                            'status'        => 'failed_invalid_id'
+                        );
                     }
                 }
+
+                $action_result = array(
+                    'success'        => $updated_count > 0,
+                    'updated_count'  => $updated_count,
+                    'failed_count'   => $failed_count,
+                    'target_details' => $details,
+                );
+            }
+
+            // D2. Deterministic Add Image Implementation (Sideload & Media Library Attachment Creation)
+            if ($action_type === 'add_image') {
+                $raw_img_src = '';
+                $img_alt = '';
+                $placement = 'append';
+
+                if (is_array($proposed_values)) {
+                    $raw_img_src = isset($proposed_values['image_url']) ? $proposed_values['image_url'] : (isset($proposed_values['image_source']) ? $proposed_values['image_source'] : '');
+                    $img_alt = isset($proposed_values['alt_text']) ? $proposed_values['alt_text'] : '';
+                    $placement = isset($proposed_values['placement']) ? $proposed_values['placement'] : 'append';
+                } elseif (is_string($proposed_values)) {
+                    $raw_img_src = $proposed_values;
+                }
+
+                $img_alt = sanitize_text_field($img_alt);
+
+                if (empty($raw_img_src)) {
+                    return new WP_Error('rest_invalid_param', 'image_url parameter is required for add_image.', array('status' => 400));
+                }
+
+                $target_page = get_post($post_id);
+                if (!$target_page) {
+                    return new WP_Error('rest_post_invalid_id', 'Target post/page not found.', array('status' => 404));
+                }
+
+                require_once(ABSPATH . 'wp-admin/includes/file.php');
+                require_once(ABSPATH . 'wp-admin/includes/media.php');
+                require_once(ABSPATH . 'wp-admin/includes/image.php');
+
+                $attachment_id = 0;
+                $final_img_url = '';
+
+                // Case 1: Base64 Uploaded Desktop Image (e.g. data:image/png;base64,...)
+                if (preg_match('/^data:image\/(\w+);base64,/', $raw_img_src, $type_matches)) {
+                    $image_type = strtolower($type_matches[1]);
+                    if (!in_array($image_type, array('jpg', 'jpeg', 'png', 'gif', 'webp'))) {
+                        $image_type = 'jpeg';
+                    }
+                    $base64_data = substr($raw_img_src, strpos($raw_img_src, ',') + 1);
+                    $decoded_file = base64_decode($base64_data);
+
+                    if ($decoded_file !== false) {
+                        $upload_dir = wp_upload_dir();
+                        $filename = 'uploaded-image-' . time() . '-' . wp_generate_password(4, false) . '.' . $image_type;
+                        $upload = wp_upload_bits($filename, null, $decoded_file);
+
+                        if (empty($upload['error'])) {
+                            $file_path = $upload['file'];
+                            $file_url  = $upload['url'];
+                            $filetype  = wp_check_filetype($filename, null);
+
+                            $attachment = array(
+                                'post_mime_type' => $filetype['type'],
+                                'post_title'     => sanitize_file_name($filename),
+                                'post_content'   => '',
+                                'post_status'    => 'inherit'
+                            );
+
+                            $attachment_id = wp_insert_attachment($attachment, $file_path, $target_page->ID);
+                            if (!is_wp_error($attachment_id)) {
+                                $attach_data = wp_generate_attachment_metadata($attachment_id, $file_path);
+                                wp_update_attachment_metadata($attachment_id, $attach_data);
+                                update_post_meta($attachment_id, '_wp_attachment_image_alt', $img_alt);
+                                $final_img_url = $file_url;
+                            }
+                        }
+                    }
+                }
+                // Case 2: HTTP / HTTPS Web Image URL
+                elseif (strpos($raw_img_src, 'http://') === 0 || strpos($raw_img_src, 'https://') === 0) {
+                    $tmp = download_url($raw_img_src);
+                    if (!is_wp_error($tmp)) {
+                        $file_array = array(
+                            'name'     => sanitize_file_name('media-' . time() . '-' . wp_generate_password(4, false) . '.jpg'),
+                            'tmp_name' => $tmp
+                        );
+                        $id = media_handle_sideload($file_array, $target_page->ID, $img_alt);
+                        if (!is_wp_error($id)) {
+                            update_post_meta($id, '_wp_attachment_image_alt', $img_alt);
+                            $attachment_id = $id;
+                            $final_img_url = wp_get_attachment_url($id);
+                        } else {
+                            @unlink($tmp);
+                        }
+                    }
+                }
+
+                // Fallback to raw URL if upload/sideload failed
+                if (empty($final_img_url)) {
+                    $final_img_url = esc_url_raw($raw_img_src);
+                }
+
+                $existing_content = $target_page->post_content ? $target_page->post_content : '';
+                $image_block_markup = "\n<!-- wp:image " . ($attachment_id ? "{\"id\":" . intval($attachment_id) . ",\"sizeSlug\":\"full\",\"linkDestination\":\"none\"}" : "{\"sizeSlug\":\"full\",\"linkDestination\":\"none\"}") . " -->\n<figure class=\"wp-block-image size-full\"><img src=\"" . esc_url($final_img_url) . "\" alt=\"" . esc_attr($img_alt) . "\"" . ($attachment_id ? " class=\"wp-image-" . intval($attachment_id) . "\"" : "") . "/></figure>\n<!-- /wp:image -->\n";
+
+                if ($placement === 'prepend') {
+                    $new_content = $image_block_markup . $existing_content;
+                } else {
+                    $new_content = $existing_content . $image_block_markup;
+                }
+
+                wp_update_post(array(
+                    'ID'           => $target_page->ID,
+                    'post_content' => wp_slash($new_content),
+                ));
+                clean_post_cache($target_page->ID);
+                wp_cache_delete($target_page->ID, 'posts');
+
+                // Strict Readback Verification: Ensure the inserted image base URL path is present in post_content
+                $reread_page = get_post($target_page->ID);
+                $clean_url_for_check = strtok($final_img_url, '?');
+                $url_path = parse_url($clean_url_for_check, PHP_URL_PATH);
+                $path_to_check = (!empty($url_path) && $url_path !== '/') ? $url_path : $clean_url_for_check;
+
+                if (!$reread_page || (strpos($reread_page->post_content, $path_to_check) === false && strpos($reread_page->post_content, $clean_url_for_check) === false)) {
+                    delete_transient($lock_key);
+                    $debug_content_sample = $reread_page ? substr($reread_page->post_content, 0, 300) : 'null';
+                    return new WP_Error('rest_verification_failed', "Failed to verify image insertion. path_to_check: '{$path_to_check}', clean_url: '{$clean_url_for_check}', reread_content_sample: '{$debug_content_sample}'", array('status' => 500));
+                }
+
+                $reread_meta = get_post_meta($target_page->ID);
+                $new_payload  = $reread_page->post_title . '|' . $reread_page->post_excerpt . '|' . serialize($reread_meta);
+                $new_checksum = md5($new_payload);
+
+                delete_transient($lock_key);
+
+                return rest_ensure_response(array(
+                    'execution_state'    => 'SUCCEEDED',
+                    'post_id'            => $target_page->ID,
+                    'action_type'        => $action_type,
+                    'added_image'        => $final_img_url,
+                    'attachment_id'      => $attachment_id,
+                    'alt_text'           => $img_alt,
+                    'previous_checksum'  => $current_checksum,
+                    'new_checksum'       => $new_checksum,
+                    'snapshot_id'        => $snapshot_id,
+                    'verificationStatus' => 'VERIFIED_EXACT_MATCH',
+                    'executedAt'         => time(),
+                ));
             }
 
             // E. Meta Field Updates (Yoast, Rank Math, AIOSEO, SEOPress)
             if (isset($proposed_values['meta']) && is_array($proposed_values['meta'])) {
                 foreach ($proposed_values['meta'] as $meta_key => $meta_val) {
-                    $clean_val = sanitize_text_field($meta_val);
-                    update_post_meta($post_id, $meta_key, $clean_val);
+                    update_post_meta($post_id, sanitize_key($meta_key), sanitize_text_field($meta_val));
                 }
             }
 

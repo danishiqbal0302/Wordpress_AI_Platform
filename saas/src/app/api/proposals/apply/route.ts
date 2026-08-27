@@ -63,11 +63,32 @@ export async function POST(req: Request) {
     } else if (actionType === "update_focus_keyword") {
       proposedValuesPayload.focus_keyword = proposedValue;
     } else if (actionType === "update_alt_text") {
-      proposedValuesPayload.alt_text = proposedValue;
-      proposedValuesPayload.value = proposedValue;
+      if (typeof proposedValue === "object" && proposedValue !== null) {
+        if (Array.isArray(proposedValue.targets)) {
+          proposedValuesPayload.targets = proposedValue.targets;
+        } else if (proposedValue.alt_map) {
+          proposedValuesPayload.alt_map = proposedValue.alt_map;
+        } else {
+          proposedValuesPayload.alt_text = proposedValue.alt_text || proposedValue.value || "";
+          if (proposedValue.attachment_id) proposedValuesPayload.attachment_id = proposedValue.attachment_id;
+        }
+      } else {
+        proposedValuesPayload.alt_text = proposedValue;
+        proposedValuesPayload.value = proposedValue;
+      }
+    } else if (actionType === "add_image") {
+      if (typeof proposedValue === "object" && proposedValue !== null) {
+        proposedValuesPayload.image_url = proposedValue.image_url || proposedValue.image_source || proposedValue.src || "";
+        proposedValuesPayload.alt_text = proposedValue.alt_text || "";
+        proposedValuesPayload.placement = proposedValue.placement || "append";
+      } else {
+        proposedValuesPayload.image_url = (proposedValue || "").toString();
+        proposedValuesPayload.alt_text = "";
+        proposedValuesPayload.placement = "append";
+      }
     } else if (actionType === "update_post_title") {
       proposedValuesPayload.post_title = proposedValue;
-    } else if (actionType === "update_post_content" || actionType === "add_image") {
+    } else if (actionType === "update_post_content") {
       let normContent = (proposedValue || "").toString();
       normContent = normContent
         .replace(/<!--\s*wp:heading\s*-->\s*(<h1[^>]*>)/gi, '<!-- wp:heading {"level":1} -->\n$1')
