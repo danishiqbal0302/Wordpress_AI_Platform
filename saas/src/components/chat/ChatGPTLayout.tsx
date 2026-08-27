@@ -294,7 +294,7 @@ export function ChatGPTLayout({
       {/* Main Container */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative">
         {/* Top Header Bar */}
-        <header className="h-14 border-b border-slate-100 dark:border-slate-800/80 px-4 flex items-center justify-between shrink-0 bg-white/80 dark:bg-[#171717]/80 backdrop-blur-md z-10">
+        <header className="h-14 pt-[1px] border-b border-slate-100 dark:border-slate-800/80 px-4 flex items-center justify-between shrink-0 bg-white/80 dark:bg-[#171717]/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
             {!sidebarOpen && (
               <button

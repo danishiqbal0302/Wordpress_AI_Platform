@@ -58,7 +58,7 @@ export function TopNav({ onMobileMenuToggle }: TopNavProps) {
   });
 
   return (
-    <header className="h-16 border-b border-border/80 bg-card/40 backdrop-blur-xl sticky top-0 z-30 px-4 md:px-6 flex items-center justify-between">
+    <header className="h-16 pt-[1px] border-b border-border/80 bg-card/40 backdrop-blur-xl sticky top-0 z-30 px-4 md:px-6 flex items-center justify-between">
       {/* Mobile Menu Trigger & Breadcrumb */}
       <div className="flex items-center gap-3 md:gap-4">
         <button
