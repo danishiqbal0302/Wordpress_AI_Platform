@@ -912,7 +912,17 @@ PROPOSAL_JSON:
       if (isCreateRequest) {
         const isPost = /(blog|article|news|post)/i.test(cleanPrompt);
         const pType = isPost ? "post" : "page";
-        const rawTitle = cleanPrompt.replace(/\b(create|publish|add|make|a|an|new|post|page|article|about|for|on)\b/gi, "").replace(/\s+/g, " ").trim();
+        let rawTitle = cleanPrompt
+          .replace(/\b(create|publish|add|make|a|an|new|posts|pages|post|page|articles|article|titled|named|called|for|on|with|title|titles)\b/gi, "")
+          .replace(/[:"']/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (rawTitle.includes(",")) {
+          const firstPart = rawTitle.split(",")[0].trim();
+          if (firstPart.length > 0) rawTitle = firstPart;
+        }
+
         const formattedTitle = rawTitle.length > 0 ? (rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1)) : (isPost ? "New Blog Post" : "New Page");
 
         extractedProposal = {
