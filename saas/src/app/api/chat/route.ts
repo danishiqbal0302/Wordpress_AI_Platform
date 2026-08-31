@@ -554,6 +554,29 @@ export async function POST(req: Request) {
     }
     
     if (customMilestoneMessage) {
+      try {
+        await prisma.chatMessage.create({
+          data: {
+            siteId: site.id,
+            userId: payload.userId,
+            sender: "user",
+            text: cleanPrompt,
+          },
+        });
+
+        await prisma.chatMessage.create({
+          data: {
+            siteId: site.id,
+            userId: payload.userId,
+            sender: "ai",
+            text: customMilestoneMessage,
+            suggestions: (genState?.suggestions || []) as any,
+          },
+        });
+      } catch (dbSaveErr) {
+        console.error("[Chat API Milestone DB Persistence Error]:", dbSaveErr);
+      }
+
       return NextResponse.json({
         reply: customMilestoneMessage,
         generationState: genState,
@@ -673,12 +696,30 @@ ${imageContextStr}
 
 SUPPORTED ACTION TYPES FOR PROPOSAL_JSON:
 - "update_post_title": (ruleId: "CONTENT_002")
-- "update_meta_description": (ruleId: "SEO_001")
+- "update_meta_description": (ruleId: "SEO_001"). Use when user requests updating meta descriptions.
+  * When user requests adding or updating meta descriptions (e.g. "Add meta description to 10 pages"), IMMEDIATELY generate PROPOSAL_JSON. DO NOT ask the user to manually provide meta descriptions — generate high-quality, professional, SEO-optimized meta descriptions automatically.
+  * SINGLE PAGE: Set suggestedValue to { "meta_description": "Full meta description..." } and entityId to target Page ID.
+  * BULK PAGES (MULTIPLE PAGES): When user requests updating meta descriptions for multiple pages (e.g. "Add meta description to 10 pages"), YOU MUST OUTPUT A STRUCTURED ARRAY IN "suggestedValue":
+    "suggestedValue": {
+      "targets": [
+        { "post_id": 12, "pageTitle": "Home", "meta_description": "Full meta description..." },
+        { "post_id": 15, "pageTitle": "About", "meta_description": "Full meta description..." }
+      ]
+    }
 - "update_meta_title": (ruleId: "SEO_004")
 - "update_post_content": (ruleId: "CONTENT_001" or "CONTENT_003")
 - "update_alt_text": (ruleId: "MEDIA_001")
 - "add_image": (ruleId: "MEDIA_002"). When user requests an image by topic (e.g. "Add a gaming image to the Home page", "Add a mountain photo"), IMMEDIATELY generate PROPOSAL_JSON with actionType "add_image", setting topic to the requested topic (e.g., "gaming", "mountain"), placement to "append", and entityId to target Page ID. DO NOT ask the user to provide an image URL.
-- "create_post": Set post_type to "post" for blog posts/articles/news, and post_type to "page" for website pages. (ruleId: "CONTENT_006")
+- "create_post": (ruleId: "CONTENT_006"). Use when user requests creating pages or posts.
+  * SINGLE ITEM: Set post_type to "post" for blog posts/articles/news, and "page" for website pages. Set title, content, post_status.
+  * BULK CREATION (MULTIPLE PAGES / MULTIPLE POSTS / MIXED PAGES + POSTS): When user requests creating multiple pages (e.g. "Create 3 pages"), multiple posts (e.g. "Create 3 blog posts"), or mixed items (e.g. "Create 2 pages and 1 post"), YOU MUST OUTPUT A STRUCTURED ARRAY IN "suggestedValue":
+    "suggestedValue": {
+      "items": [
+        { "title": "Page 1 Title", "content": "Full page content...", "post_type": "page", "post_status": "publish" },
+        { "title": "Blog Post 1 Title", "content": "Full post content...", "post_type": "post", "post_status": "publish" }
+      ]
+    }
+    DO NOT COLLAPSE MULTIPLE REQUESTED ITEMS INTO A SINGLE PAGE OR POST. INCLUDE EVERY REQUESTED ITEM IN THE "items" ARRAY.
 - "create_menu": (ruleId: "MENU_001")
 - "set_front_page": (ruleId: "CONFIG_001")
 - "set_site_logo": (ruleId: "CONFIG_002")
@@ -825,7 +866,7 @@ PROPOSAL_JSON:
       if (potentialJson) {
         try {
           extractedProposal = JSON.parse(potentialJson);
-          extractedProposal = await normalizeProposalObject(extractedProposal, imageAttachment);
+          extractedProposal = await normalizeProposalObject(extractedProposal, imageAttachment, cleanPrompt);
         } catch (e) {
           console.warn("[Chat API] Failed to parse OpenAI proposal JSON:", e);
         }
@@ -887,7 +928,7 @@ PROPOSAL_JSON:
         try {
           const parsed = JSON.parse(potentialJson);
           if (parsed.actionType || parsed.suggestedValue || parsed.proposedValue || parsed.ruleId) {
-            extractedProposal = await normalizeProposalObject(parsed, imageAttachment);
+            extractedProposal = await normalizeProposalObject(parsed, imageAttachment, cleanPrompt);
             const firstBrace = rawContent.indexOf("{");
             fullReplyText = rawContent.slice(0, firstBrace).trim() || "I have prepared the proposal for your request below. ✨";
           }
@@ -902,81 +943,249 @@ PROPOSAL_JSON:
       .trim();
 
     // 3. FAILSAFE PROPOSAL GENERATOR: Guarantee proposal generation for any edit/redesign request
-    const isClarificationReply = /(could you please specify|please specify the|please provide the|what kind of business|which business niche|what focus keyphrase)/i.test(fullReplyText);
-    const isCreateRequest = /(create.*post|create.*page|add.*post|add.*page|new.*post|new.*page|publish.*post|publish.*page|create.*article|new.*article)/i.test(cleanPrompt);
-    const isImageAddRequest = /(add.*image|insert.*image|put.*image|image.*add|add.*photo|insert.*photo|picture.*add|add.*picture)/i.test(cleanPrompt);
+    const isMetaTitleFailsafeRequest = /(seo title|meta title|title tag|update title tag|set title tag)/i.test(cleanPrompt);
+    const isMetaDescFailsafeRequest = !isMetaTitleFailsafeRequest && /(meta description|meta-description|description tag|seo description|update description|add description|meta desc)/i.test(cleanPrompt);
     const isAltFailsafeRequest = /(alt.*text|text.*alt|alt.*tag|missing.*alt|fix.*alt|add.*alt)/i.test(cleanPrompt);
+    const isCreateRequest = !isMetaTitleFailsafeRequest && !isMetaDescFailsafeRequest && /(create.*post|create.*page|add.*post|add.*page|new.*post|new.*page|publish.*post|publish.*page|create.*article|new.*article)/i.test(cleanPrompt);
+    const isClarificationReply = !isCreateRequest && !isMetaTitleFailsafeRequest && !isMetaDescFailsafeRequest && !isAltFailsafeRequest && /(could you please specify|please specify the|please provide the|what kind of business|which business niche|what focus keyphrase)/i.test(fullReplyText);
+    const isImageAddRequest = /(add.*image|insert.*image|put.*image|image.*add|add.*photo|insert.*photo|picture.*add|add.*picture)/i.test(cleanPrompt);
     const isChangeRequest = /(change|update|replace|remove|delete|add|fix|rename|set|email|heading|h1|meta|title|content|redesign|banner|cards|section|upgrade|improve|style|create|publish|make|post|page|article)/i.test(cleanPrompt);
 
-    if (!extractedProposal && !isClarificationReply && (isCreateRequest || isImageAddRequest || isAltFailsafeRequest || isChangeRequest)) {
+    if (!extractedProposal && !isClarificationReply && (isCreateRequest || isImageAddRequest || isAltFailsafeRequest || isMetaTitleFailsafeRequest || isMetaDescFailsafeRequest || isChangeRequest)) {
       if (isCreateRequest) {
         const isPost = /(blog|article|news|post)/i.test(cleanPrompt);
         const pType = isPost ? "post" : "page";
-        let rawTitle = cleanPrompt
-          .replace(/\b(create|publish|add|make|a|an|new|posts|pages|post|page|articles|article|titled|named|called|for|on|with|title|titles)\b/gi, "")
-          .replace(/[:"']/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
 
-        if (rawTitle.includes(",")) {
-          const firstPart = rawTitle.split(",")[0].trim();
-          if (firstPart.length > 0) rawTitle = firstPart;
+        // Detect if prompt or response text requests multiple items
+        const requestedCountMatch = cleanPrompt.match(/(\d+)\s*(pages|posts|articles|items)?/i);
+        const requestedCount = requestedCountMatch ? parseInt(requestedCountMatch[1], 10) : 0;
+
+        // Extract bulleted outline titles from AI response text if present
+        const extractedTitles: string[] = [];
+        const responseLines = fullReplyText.split("\n");
+        for (const line of responseLines) {
+          const m = line.match(/(?:page\s*title|title|name)[:\s]*[*_`"]*([\w\s&'-]{3,70})[*_`"]*$/i) ||
+                    line.match(/^\s*(?:\*|-|\d+\.)\s*[*_`"]*(?:page\s*\d+:?|title:?)?\s*([A-Z0-9][\w\s&'-]{3,70})[*_`"]*$/i);
+          if (m && m[1]) {
+            const cleanT = m[1].trim();
+            if (cleanT && !cleanT.toLowerCase().includes("proposed outline") && !cleanT.toLowerCase().includes("page title") && !cleanT.toLowerCase().includes("content:")) {
+              if (!extractedTitles.includes(cleanT)) {
+                extractedTitles.push(cleanT);
+              }
+            }
+          }
         }
 
-        const formattedTitle = rawTitle.length > 0 ? (rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1)) : (isPost ? "New Blog Post" : "New Page");
+        const isBulkRequest = requestedCount >= 2 || extractedTitles.length >= 2;
 
-        extractedProposal = {
-          ruleId: "CONTENT_006",
-          category: "content_quality",
-          actionType: "create_post",
-          fieldLabel: isPost ? "New Blog Post" : "New Page",
-          pageTitle: formattedTitle,
-          affectedUrl: isPost ? "/blog" : `/${formattedTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}`,
-          entityId: 0,
-          suggestedValue: {
-            title: formattedTitle,
-            post_title: formattedTitle,
-            content: `<!-- wp:paragraph -->\n<p>Welcome to ${formattedTitle}.</p>\n<!-- /wp:paragraph -->`,
-            post_content: `<!-- wp:paragraph -->\n<p>Welcome to ${formattedTitle}.</p>\n<!-- /wp:paragraph -->`,
+        if (isBulkRequest) {
+          const topicRaw = cleanPrompt.replace(/\b(\d+|create|publish|add|make|a|an|new|post|posts|page|pages|article|articles|about|for|on|each|should|have|enough|content|in|it|like|headings|paragraph|sections)\b/gi, "").replace(/\s+/g, " ").trim();
+          const topicName = topicRaw ? (topicRaw.charAt(0).toUpperCase() + topicRaw.slice(1)) : "Topic";
+
+          const finalTitles: string[] = [...extractedTitles];
+          const targetCount = requestedCount >= 2 ? requestedCount : Math.max(2, finalTitles.length);
+
+          while (finalTitles.length < targetCount) {
+            const num = finalTitles.length + 1;
+            finalTitles.push(`${topicName} - Part ${num}`);
+          }
+
+          const bulkItems = finalTitles.slice(0, targetCount).map((t) => ({
+            title: t,
+            post_title: t,
+            content: `<!-- wp:heading {"level":1} -->\n<h1>${t}</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p>Comprehensive overview and detailed sections for ${t}.</p>\n<!-- /wp:paragraph -->`,
+            post_content: `<!-- wp:heading {"level":1} -->\n<h1>${t}</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p>Comprehensive overview and detailed sections for ${t}.</p>\n<!-- /wp:paragraph -->`,
             post_type: pType,
             post_status: "publish",
-          },
-        };
-        console.log(`[Chat API Failsafe] Auto-generated create_post proposal (type: ${pType}, title: "${formattedTitle}").`);
-      } else if (allInventoryItems.length > 0) {
+          }));
+
+          extractedProposal = await normalizeProposalObject({
+            ruleId: "CONTENT_006",
+            category: "content_quality",
+            actionType: "create_post",
+            fieldLabel: `${bulkItems.length} New ${pType === "post" ? "Blog Posts" : "Pages"}`,
+            pageTitle: `${bulkItems.length} New ${pType === "post" ? "Blog Posts" : "Pages"}`,
+            affectedUrl: pType === "post" ? "/blog" : "/",
+            entityId: 0,
+            suggestedValue: {
+              items: bulkItems,
+            },
+          }, imageAttachment, cleanPrompt);
+          console.log(`[Chat API Failsafe] Auto-generated bulk create_post proposal for ${bulkItems.length} items.`);
+        } else {
+          // Single item creation
+          const rawTitle = cleanPrompt.replace(/\b(create|publish|add|make|a|an|new|post|page|article|about|for|on)\b/gi, "").replace(/\s+/g, " ").trim();
+          const formattedTitle = rawTitle.length > 0 ? (rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1)) : (isPost ? "New Blog Post" : "New Page");
+
+          extractedProposal = await normalizeProposalObject({
+            ruleId: "CONTENT_006",
+            category: "content_quality",
+            actionType: "create_post",
+            fieldLabel: isPost ? "New Blog Post" : "New Page",
+            pageTitle: formattedTitle,
+            affectedUrl: isPost ? "/blog" : `/${formattedTitle.toLowerCase().replace(/[^a-z0-9]/g, "-")}`,
+            entityId: 0,
+            suggestedValue: {
+              title: formattedTitle,
+              post_title: formattedTitle,
+              content: `<!-- wp:paragraph -->\n<p>Welcome to ${formattedTitle}.</p>\n<!-- /wp:paragraph -->`,
+              post_content: `<!-- wp:paragraph -->\n<p>Welcome to ${formattedTitle}.</p>\n<!-- /wp:paragraph -->`,
+              post_type: pType,
+              post_status: "publish",
+            },
+          }, imageAttachment, cleanPrompt);
+          console.log(`[Chat API Failsafe] Auto-generated single create_post proposal (type: ${pType}, title: "${formattedTitle}").`);
+        }
+      } else {
         // Find target item by prompt matching or default to Home or first item
         const targetItem = allInventoryItems.find((i) =>
           lowerPrompt.includes((i.title || "").toLowerCase()) ||
           lowerPrompt.includes((i.slug || "").toLowerCase())
-        ) || sitePages.find((p) => (p.title || "").toLowerCase().includes("home")) || allInventoryItems[0];
+        ) || sitePages.find((p) => (p.title || "").toLowerCase().includes("home")) || allInventoryItems[0] || { id: 0, title: "Home Page", slug: "home" };
 
         if (targetItem) {
-        if (isAltFailsafeRequest && siteMedia.length > 0) {
-          // Dedicated failsafe for ALT text update requests
-          const altTargets = siteMedia.map((m) => {
-            const attachTitle = m.title || "Media Image";
-            const parentPage = m.parent_post_title || targetItem.title || "Target Page";
-            let contextualAlt = m.caption ? `${attachTitle}: ${m.caption} (${parentPage})` : `${attachTitle} in ${parentPage} section`;
-            return {
-              attachment_id: m.id,
-              image_url: m.url,
-              alt_text: contextualAlt,
-            };
-          });
+        if (isMetaTitleFailsafeRequest) {
+          const isExplicitBulk = /(all pages|10 pages|multiple pages|every page|all title|across the site|\d+\s*pages|\d+\s*posts|\d+\s*items)/i.test(cleanPrompt);
+          const isRemoveRequest = /(remove|clear|delete|empty)/i.test(cleanPrompt);
 
-          extractedProposal = {
-            ruleId: "MEDIA_001",
-            category: "media",
-            actionType: "update_alt_text",
-            fieldLabel: "Image Alt Text",
-            pageTitle: `${altTargets.length} Media Library Images`,
-            affectedUrl: "/wp-admin/upload.php",
-            entityId: altTargets[0]?.attachment_id || 0,
-            suggestedValue: {
-              targets: altTargets,
-            },
-          };
-          console.log(`[Chat API Failsafe] Auto-generated update_alt_text proposal for ${altTargets.length} media items.`);
+          if (isExplicitBulk && sitePages.length >= 2) {
+            const titleTargets = sitePages.map((p) => ({
+              post_id: p.id,
+              entityId: p.id,
+              pageTitle: p.title || `Page #${p.id}`,
+              title: p.title || `Page #${p.id}`,
+              meta_title: isRemoveRequest ? "" : `${p.title || 'Page'} | Official Website`,
+              value: isRemoveRequest ? "" : `${p.title || 'Page'} | Official Website`,
+            }));
+
+            extractedProposal = await normalizeProposalObject({
+              ruleId: "SEO_004",
+              category: "seo",
+              actionType: "update_meta_title",
+              fieldLabel: `${titleTargets.length} Pages SEO Titles`,
+              pageTitle: `${titleTargets.length} Pages SEO Titles`,
+              affectedUrl: "/wp-admin/edit.php?post_type=page",
+              entityId: titleTargets[0]?.post_id || 0,
+              suggestedValue: {
+                targets: titleTargets,
+              },
+            }, imageAttachment, cleanPrompt);
+          } else {
+            const quotedMatch = cleanPrompt.match(/"([^"]+)"/);
+            const userSpecifiedTitle = quotedMatch ? quotedMatch[1] : null;
+            const singleTitle = isRemoveRequest ? "" : (userSpecifiedTitle || `${targetItem.title} - Official Site`);
+            extractedProposal = await normalizeProposalObject({
+              ruleId: "SEO_004",
+              category: "seo",
+              actionType: "update_meta_title",
+              fieldLabel: "SEO Title",
+              pageTitle: targetItem.title || "Target Page",
+              affectedUrl: `/${targetItem.slug || "page"}`,
+              entityId: targetItem.id,
+              suggestedValue: {
+                meta_title: singleTitle,
+                value: singleTitle,
+              },
+            }, imageAttachment, cleanPrompt);
+          }
+        } else if (isMetaDescFailsafeRequest) {
+          // Dedicated failsafe for Meta Description update requests
+          const isExplicitBulk = /(all pages|10 pages|multiple pages|every page|all meta|across the site|\d+\s*pages|\d+\s*posts|\d+\s*items)/i.test(cleanPrompt);
+          const isRemoveRequest = /(remove|clear|delete|empty)/i.test(cleanPrompt);
+
+          if (isExplicitBulk && sitePages.length >= 2) {
+            const metaTargets = sitePages.map((p) => ({
+              post_id: p.id,
+              entityId: p.id,
+              pageTitle: p.title || `Page #${p.id}`,
+              title: p.title || `Page #${p.id}`,
+              meta_description: isRemoveRequest ? "" : `Professional, SEO-optimized ${p.title || 'website'} page offering top-tier services and quality information for visitors.`,
+              value: isRemoveRequest ? "" : `Professional, SEO-optimized ${p.title || 'website'} page offering top-tier services and quality information for visitors.`,
+            }));
+
+            extractedProposal = await normalizeProposalObject({
+              ruleId: "SEO_001",
+              category: "seo",
+              actionType: "update_meta_description",
+              fieldLabel: `${metaTargets.length} Pages Meta Descriptions`,
+              pageTitle: `${metaTargets.length} Pages Meta Descriptions`,
+              affectedUrl: "/wp-admin/edit.php?post_type=page",
+              entityId: metaTargets[0]?.post_id || 0,
+              suggestedValue: {
+                targets: metaTargets,
+              },
+            }, imageAttachment, cleanPrompt);
+            console.log(`[Chat API Failsafe] Auto-generated bulk update_meta_description proposal for ${metaTargets.length} pages.`);
+          } else {
+            // Single-target Meta Description
+            const quotedMatch = cleanPrompt.match(/"([^"]+)"/);
+            const userSpecifiedDesc = quotedMatch ? quotedMatch[1] : null;
+            const singleDesc = isRemoveRequest ? "" : (userSpecifiedDesc || `Professional, SEO-optimized ${targetItem.title} page providing detailed information and clear call-to-actions.`);
+            extractedProposal = await normalizeProposalObject({
+              ruleId: "SEO_001",
+              category: "seo",
+              actionType: "update_meta_description",
+              fieldLabel: "Meta Description",
+              pageTitle: targetItem.title || "Target Page",
+              affectedUrl: `/${targetItem.slug || "page"}`,
+              entityId: targetItem.id,
+              suggestedValue: {
+                meta_description: singleDesc,
+                value: singleDesc,
+              },
+            }, imageAttachment, cleanPrompt);
+            console.log(`[Chat API Failsafe] Auto-generated single update_meta_description proposal for "${targetItem.title}" (#${targetItem.id}).`);
+          }
+        } else if (isAltFailsafeRequest && siteMedia.length > 0) {
+          // Dedicated failsafe for ALT text update requests
+          const isExplicitBulk = /(all images|all missing|multiple images|every image|all alt|media library|\d+\s*images)/i.test(cleanPrompt);
+          const isRemoveRequest = /(remove|clear|delete|empty)/i.test(cleanPrompt);
+
+          if (isExplicitBulk && siteMedia.length >= 2) {
+            const altTargets = siteMedia.map((m) => {
+              const attachTitle = m.title || "Media Image";
+              const parentPage = m.parent_post_title || targetItem.title || "Target Page";
+              let contextualAlt = isRemoveRequest ? "" : (m.caption ? `${attachTitle}: ${m.caption} (${parentPage})` : `${attachTitle} in ${parentPage} section`);
+              return {
+                attachment_id: m.id,
+                image_url: m.url,
+                alt_text: contextualAlt,
+              };
+            });
+
+            extractedProposal = await normalizeProposalObject({
+              ruleId: "MEDIA_001",
+              category: "media",
+              actionType: "update_alt_text",
+              fieldLabel: "Image Alt Text",
+              pageTitle: `${altTargets.length} Media Library Images`,
+              affectedUrl: "/wp-admin/upload.php",
+              entityId: altTargets[0]?.attachment_id || 0,
+              suggestedValue: {
+                targets: altTargets,
+              },
+            }, imageAttachment, cleanPrompt);
+            console.log(`[Chat API Failsafe] Auto-generated bulk update_alt_text proposal for ${altTargets.length} media items.`);
+          } else {
+            // Single-target ALT text
+            const targetMedia = siteMedia.find((m) => lowerPrompt.includes((m.title || "").toLowerCase()) || lowerPrompt.includes(String(m.id))) || siteMedia[0];
+            const singleAlt = isRemoveRequest ? "" : `Visual image for ${targetItem.title}`;
+            extractedProposal = await normalizeProposalObject({
+              ruleId: "MEDIA_001",
+              category: "media",
+              actionType: "update_alt_text",
+              fieldLabel: "Image Alt Text",
+              pageTitle: targetMedia?.title || targetItem.title || "Media Image",
+              affectedUrl: "/wp-admin/upload.php",
+              entityId: targetMedia?.id || siteMedia[0]?.id || 0,
+              suggestedValue: {
+                attachment_id: targetMedia?.id || siteMedia[0]?.id || 0,
+                alt_text: singleAlt,
+                value: singleAlt,
+              },
+            }, imageAttachment, cleanPrompt);
+            console.log(`[Chat API Failsafe] Auto-generated single update_alt_text proposal for image #${targetMedia?.id}.`);
+          }
         } else if (isImageAddRequest) {
           // Dedicated failsafe for image addition requests
           let sampleImg = imageAttachment?.dataUrl || "";
@@ -1062,6 +1271,30 @@ PROPOSAL_JSON:
     if (extractedProposal && extractedProposal.actionType === "add_image" && !imageAttachment && (!extractedProposal.suggestedValue?.image_url || !extractedProposal.suggestedValue?.image_url.startsWith("http"))) {
       extractedProposal = null;
       fullReplyText = `⚠️ **Pexels Image Search Unavailable**: Could not retrieve a stock image for "${cleanPrompt}". Please check your \`PEXELS_API_KEY\` in \`saas/.env\` or upload an image file directly from your computer.`;
+    }
+
+    // Persist chat messages to PostgreSQL database for persistent website-scoped history
+    try {
+      await prisma.chatMessage.create({
+        data: {
+          siteId: site.id,
+          userId: payload.userId,
+          sender: "user",
+          text: cleanPrompt,
+        },
+      });
+
+      await prisma.chatMessage.create({
+        data: {
+          siteId: site.id,
+          userId: payload.userId,
+          sender: "ai",
+          text: fullReplyText,
+          proposalDraft: extractedProposal ? (extractedProposal as any) : undefined,
+        },
+      });
+    } catch (dbSaveErr) {
+      console.error("[Chat API Database Persistence Error]:", dbSaveErr);
     }
 
     return NextResponse.json({
@@ -1160,11 +1393,85 @@ function extractFirstJsonObject(str: string): string | null {
   return null;
 }
 
-async function normalizeProposalObject(proposal: any, imageAttachment: any): Promise<any> {
+async function normalizeProposalObject(proposal: any, imageAttachment: any, promptText: string = ""): Promise<any> {
   if (!proposal) return proposal;
 
   if (proposal.proposedValue !== undefined && proposal.suggestedValue === undefined) {
     proposal.suggestedValue = proposal.proposedValue;
+  }
+
+  const isExplicitBulkPrompt = /(all|every|multiple|across the site|\d+\s*pages|\d+\s*posts|\d+\s*images|\d+\s*items)/i.test(promptText);
+
+  // Normalize update_meta_description into frontend proposal card shape (bulk & single)
+  if (proposal.actionType === "update_meta_description" || proposal.ruleId === "SEO_001") {
+    proposal.actionType = "update_meta_description";
+    proposal.ruleId = proposal.ruleId || "SEO_001";
+    proposal.fieldLabel = proposal.fieldLabel || "Meta Description";
+
+    const rawTargets = Array.isArray(proposal.targets)
+      ? proposal.targets
+      : Array.isArray(proposal.suggestedValue?.targets)
+      ? proposal.suggestedValue.targets
+      : Array.isArray(proposal.suggestedValue?.items)
+      ? proposal.suggestedValue.items
+      : Array.isArray(proposal.items)
+      ? proposal.items
+      : null;
+
+    if (rawTargets && rawTargets.length > 0) {
+      if (!isExplicitBulkPrompt && promptText && rawTargets.length > 1) {
+        // Single target requested -> collapse LLM bulk output to single item
+        const matched = rawTargets.find((item: any) => promptText.includes(String(item.post_id || item.entityId || item.id)) || (item.title || item.pageTitle) && promptText.toLowerCase().includes(String(item.title || item.pageTitle).toLowerCase())) || rawTargets[0];
+        const pId = Number(matched.post_id || matched.entityId || matched.id || 0);
+        const pTitle = matched.pageTitle || matched.title || matched.post_title || `Page #${pId}`;
+        const pMetaDesc = matched.meta_description || matched.description || matched.value || (typeof matched.suggestedValue === "string" ? matched.suggestedValue : "");
+        proposal.pageTitle = pTitle;
+        proposal.entityId = pId;
+        proposal.suggestedValue = {
+          meta_description: pMetaDesc,
+          value: pMetaDesc,
+        };
+        delete proposal.targets;
+      } else {
+        const normalizedTargets = rawTargets.map((item: any, idx: number) => {
+          const pId = Number(item.post_id || item.entityId || item.id || 0);
+          const pTitle = item.pageTitle || item.title || item.post_title || `Page #${pId || idx + 1}`;
+          const pMetaDesc = item.meta_description || item.description || item.value || (typeof item.suggestedValue === "string" ? item.suggestedValue : "");
+          return {
+            post_id: pId,
+            entityId: pId,
+            pageTitle: pTitle,
+            title: pTitle,
+            meta_description: pMetaDesc,
+            value: pMetaDesc,
+          };
+        });
+
+        proposal.pageTitle = proposal.pageTitle || `${normalizedTargets.length} Pages Meta Descriptions`;
+        proposal.fieldLabel = `${normalizedTargets.length} Pages Meta Descriptions`;
+        proposal.entityId = proposal.entityId || normalizedTargets[0].post_id || 0;
+        proposal.suggestedValue = {
+          targets: normalizedTargets,
+        };
+      }
+    } else {
+      const pId = Number(proposal.entityId || proposal.post_id || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.post_id : 0) || 0);
+      let descVal = proposal.meta_description || proposal.description;
+      if (!descVal && typeof proposal.suggestedValue === "object" && proposal.suggestedValue !== null) {
+        descVal = proposal.suggestedValue.meta_description || proposal.suggestedValue.value;
+      }
+      if (!descVal && typeof proposal.suggestedValue === "string") {
+        descVal = proposal.suggestedValue;
+      }
+      descVal = descVal || "";
+
+      proposal.pageTitle = proposal.pageTitle || (pId ? `Page #${pId}` : "Meta Description");
+      proposal.entityId = pId;
+      proposal.suggestedValue = {
+        meta_description: descVal,
+        value: descVal,
+      };
+    }
   }
 
   // Normalize update_post_content to preserve existing page content when replacing headings
@@ -1194,16 +1501,32 @@ async function normalizeProposalObject(proposal: any, imageAttachment: any): Pro
   }
 
   // Normalize update_alt_text into frontend proposal card shape
-  if (proposal.actionType === "update_alt_text" || proposal.ruleId === "MEDIA_001" || Array.isArray(proposal.targets)) {
+  if (proposal.actionType === "update_alt_text" || proposal.ruleId === "MEDIA_001") {
     proposal.actionType = "update_alt_text";
     proposal.ruleId = proposal.ruleId || "MEDIA_001";
     proposal.fieldLabel = proposal.fieldLabel || "Image Alt Text";
     proposal.affectedUrl = proposal.affectedUrl || "/wp-admin/upload.php";
 
-    if (Array.isArray(proposal.targets) && proposal.targets.length > 0) {
-      proposal.pageTitle = proposal.pageTitle || `${proposal.targets.length} Media Library Images`;
-      proposal.entityId = proposal.entityId || proposal.targets[0].attachment_id || 0;
-      proposal.suggestedValue = { targets: proposal.targets };
+    const rawAltTargets = Array.isArray(proposal.targets) ? proposal.targets : (Array.isArray(proposal.suggestedValue?.targets) ? proposal.suggestedValue.targets : null);
+
+    if (rawAltTargets && rawAltTargets.length > 0) {
+      if (!isExplicitBulkPrompt && promptText && rawAltTargets.length > 1) {
+        // Collapse LLM bulk output to single item for single prompt
+        const matched = rawAltTargets.find((t: any) => promptText.includes(String(t.attachment_id || t.id)) || (t.title && promptText.toLowerCase().includes(String(t.title).toLowerCase()))) || rawAltTargets[0];
+        const attId = Number(matched.attachment_id || matched.id || proposal.entityId || 0);
+        const altTxt = matched.alt_text || matched.value || "";
+        proposal.pageTitle = matched.title || (attId ? `Attachment #${attId}` : "Media Image Alt Text");
+        proposal.entityId = attId;
+        proposal.suggestedValue = {
+          attachment_id: attId,
+          alt_text: altTxt
+        };
+        delete proposal.targets;
+      } else {
+        proposal.pageTitle = proposal.pageTitle || `${rawAltTargets.length} Media Library Images`;
+        proposal.entityId = proposal.entityId || rawAltTargets[0].attachment_id || 0;
+        proposal.suggestedValue = { targets: rawAltTargets };
+      }
     } else {
       const attId = proposal.attachment_id || proposal.entityId || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue ? proposal.suggestedValue.attachment_id : 0) || 0;
       let altTxt = proposal.alt_text;
@@ -1263,26 +1586,66 @@ async function normalizeProposalObject(proposal: any, imageAttachment: any): Pro
     }
   }
 
-  // Normalize create_post into frontend proposal card shape with proper post_type resolution (post vs page)
+  // Normalize create_post into frontend proposal card shape with proper post_type resolution (post vs page vs bulk items)
   if (proposal.actionType === "create_post") {
-    const titleOrTypeStr = `${proposal.title || ""} ${proposal.pageTitle || ""} ${proposal.post_type || ""} ${JSON.stringify(proposal.suggestedValue || {})}`.toLowerCase();
-    const isPost = proposal.post_type === "post" || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue?.post_type === "post") || titleOrTypeStr.includes("post") || titleOrTypeStr.includes("article") || titleOrTypeStr.includes("blog") || titleOrTypeStr.includes("news");
-    const pType = isPost ? "post" : "page";
-    const pTitle = proposal.title || proposal.pageTitle || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.title || proposal.suggestedValue?.post_title : "") || (isPost ? "New Blog Post" : "New Page");
-    const pContent = proposal.content || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.content || proposal.suggestedValue?.post_content : "") || "";
+    const rawItems = Array.isArray(proposal.items)
+      ? proposal.items
+      : Array.isArray(proposal.suggestedValue?.items)
+      ? proposal.suggestedValue.items
+      : Array.isArray(proposal.proposedValues?.items)
+      ? proposal.proposedValues.items
+      : null;
 
-    proposal.ruleId = proposal.ruleId || "CONTENT_006";
-    proposal.fieldLabel = isPost ? "New Blog Post" : "New Page";
-    proposal.pageTitle = pTitle;
+    if (rawItems && rawItems.length > 0) {
+      const normalizedItems = rawItems.map((item: any, idx: number) => {
+        const itemTitleOrType = `${item.title || ""} ${item.post_title || ""} ${item.post_type || ""}`.toLowerCase();
+        const isItemPost = item.post_type === "post" || itemTitleOrType.includes("post") || itemTitleOrType.includes("article") || itemTitleOrType.includes("blog") || itemTitleOrType.includes("news");
+        const itemType = isItemPost ? "post" : "page";
+        const itemTitle = item.title || item.post_title || (isItemPost ? `New Post ${idx + 1}` : `New Page ${idx + 1}`);
+        const itemContent = item.content || item.post_content || "";
+        return {
+          title: itemTitle,
+          post_title: itemTitle,
+          content: itemContent,
+          post_content: itemContent,
+          post_type: itemType,
+          post_status: item.post_status || item.status || "publish",
+        };
+      });
 
-    proposal.suggestedValue = {
-      title: pTitle,
-      post_title: pTitle,
-      content: pContent,
-      post_content: pContent,
-      post_type: pType,
-      post_status: proposal.post_status || "publish",
-    };
+      const pagesCount = normalizedItems.filter((i: any) => i.post_type === "page").length;
+      const postsCount = normalizedItems.filter((i: any) => i.post_type === "post").length;
+      let label = `${normalizedItems.length} New Items`;
+      if (pagesCount > 0 && postsCount === 0) label = `${pagesCount} New Pages`;
+      if (postsCount > 0 && pagesCount === 0) label = `${postsCount} New Blog Posts`;
+      if (pagesCount > 0 && postsCount > 0) label = `${normalizedItems.length} New Items (${pagesCount} Pages, ${postsCount} Posts)`;
+
+      proposal.ruleId = proposal.ruleId || "CONTENT_006";
+      proposal.fieldLabel = label;
+      proposal.pageTitle = label;
+      proposal.suggestedValue = {
+        items: normalizedItems,
+      };
+    } else {
+      const titleOrTypeStr = `${proposal.title || ""} ${proposal.pageTitle || ""} ${proposal.post_type || ""} ${JSON.stringify(proposal.suggestedValue || {})} ${promptText}`.toLowerCase();
+      const isPost = proposal.post_type === "post" || (typeof proposal.suggestedValue === "object" && proposal.suggestedValue?.post_type === "post") || titleOrTypeStr.includes("post") || titleOrTypeStr.includes("article") || titleOrTypeStr.includes("blog") || titleOrTypeStr.includes("news");
+      const pType = isPost ? "post" : "page";
+      const pTitle = proposal.title || proposal.pageTitle || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.title || proposal.suggestedValue?.post_title : "") || (isPost ? "New Blog Post" : "New Page");
+      const pContent = proposal.content || (typeof proposal.suggestedValue === "object" ? proposal.suggestedValue?.content || proposal.suggestedValue?.post_content : "") || "";
+
+      proposal.ruleId = proposal.ruleId || "CONTENT_006";
+      proposal.fieldLabel = isPost ? "New Blog Post" : "New Page";
+      proposal.pageTitle = pTitle;
+
+      proposal.suggestedValue = {
+        title: pTitle,
+        post_title: pTitle,
+        content: pContent,
+        post_content: pContent,
+        post_type: pType,
+        post_status: proposal.post_status || "publish",
+      };
+    }
   }
 
   if (proposal.actionType === "create_menu" && proposal.suggestedValue === undefined) {

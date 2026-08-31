@@ -35,6 +35,30 @@ class WP_AI_Rollback {
             );
         }
 
+        // 0. Handle New Creation Rollback (delete created posts/pages)
+        if (isset($snapshot_data['is_new_creation']) && $snapshot_data['is_new_creation'] === true) {
+            $ids_to_delete = isset($snapshot_data['created_ids']) && is_array($snapshot_data['created_ids']) && count($snapshot_data['created_ids']) > 0
+                ? $snapshot_data['created_ids']
+                : array($post_id);
+
+            $deleted_ids = array();
+            foreach ($ids_to_delete as $del_id) {
+                if ($del_id > 0) {
+                    wp_delete_post($del_id, true);
+                    $deleted_ids[] = $del_id;
+                }
+            }
+
+            delete_option($snapshot_id);
+
+            return rest_ensure_response(array(
+                'rollback_status' => 'SUCCESS',
+                'action_type'     => 'create_post',
+                'deleted_ids'     => $deleted_ids,
+                'executedAt'      => time(),
+            ));
+        }
+
         // 1. Restore Exact Previous Post Attributes
         $rollback_post_args = array(
             'ID'           => $post_id,

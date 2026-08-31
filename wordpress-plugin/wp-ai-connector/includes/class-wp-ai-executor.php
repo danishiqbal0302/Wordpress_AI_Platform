@@ -22,28 +22,87 @@ class WP_AI_Executor {
 
         // 1. Handle Global Actions (Create Post, Create Menu, Set Front Page, Set Logo)
         if ($action_type === 'create_post') {
-            $post_title   = isset($proposed_values['post_title']) ? sanitize_text_field($proposed_values['post_title']) : 'New Page';
-            $post_content = isset($proposed_values['post_content']) ? $proposed_values['post_content'] : '';
-            $post_type    = isset($proposed_values['post_type']) ? sanitize_text_field($proposed_values['post_type']) : 'page';
-            $post_status  = isset($proposed_values['post_status']) ? sanitize_text_field($proposed_values['post_status']) : 'publish';
+            $snapshot_id = 'wp_ai_snapshot_create_' . time() . '_' . wp_generate_password(6, false);
+            $items_to_create = array();
 
-            $new_post_id = wp_insert_post(array(
-                'post_title'   => $post_title,
-                'post_content' => $post_content,
-                'post_type'    => $post_type,
-                'post_status'  => $post_status,
-            ));
-
-            if (is_wp_error($new_post_id)) {
-                return new WP_Error('rest_create_failed', $new_post_id->get_error_message(), array('status' => 500));
+            if (isset($proposed_values['items']) && is_array($proposed_values['items']) && count($proposed_values['items']) > 0) {
+                $items_to_create = $proposed_values['items'];
+            } else {
+                $items_to_create[] = $proposed_values;
             }
+
+            $created_items = array();
+            $created_ids   = array();
+
+            foreach ($items_to_create as $item) {
+                $title   = isset($item['post_title']) ? sanitize_text_field($item['post_title']) : (isset($item['title']) ? sanitize_text_field($item['title']) : 'New Item');
+                $content = isset($item['post_content']) ? $item['post_content'] : (isset($item['content']) ? $item['content'] : '');
+                $type    = isset($item['post_type']) ? sanitize_text_field($item['post_type']) : 'page';
+                $status  = isset($item['post_status']) ? sanitize_text_field($item['post_status']) : 'publish';
+
+                $new_id = wp_insert_post(array(
+                    'post_title'   => $title,
+                    'post_content' => $content,
+                    'post_type'    => $type,
+                    'post_status'  => $status,
+                ));
+
+                if (is_wp_error($new_id)) {
+                    return new WP_Error('rest_create_failed', "Failed to create item '{$title}': " . $new_id->get_error_message(), array('status' => 500));
+                }
+
+                clean_post_cache($new_id);
+                wp_cache_delete($new_id, 'posts');
+
+                $reread = get_post($new_id);
+                if (!$reread) {
+                    return new WP_Error('rest_verification_failed', "Failed to verify creation of item ID #{$new_id}", array('status' => 500));
+                }
+
+                $created_ids[]   = $new_id;
+                $created_items[] = array(
+                    'post_id'    => $new_id,
+                    'post_title' => $reread->post_title,
+                    'post_type'  => $reread->post_type,
+                    'status'     => 'created',
+                );
+            }
+
+            // Save creation snapshot for 1-click rollback
+            $snapshot_data = array(
+                'is_new_creation' => true,
+                'created_ids'     => $created_ids,
+                'created_items'   => $created_items,
+                'action_type'     => 'create_post',
+                'created_at'      => time(),
+            );
+            update_option($snapshot_id, $snapshot_data, false);
+
+            $primary_id = count($created_ids) > 0 ? $created_ids[0] : 0;
 
             return rest_ensure_response(array(
                 'execution_state'    => 'SUCCEEDED',
-                'post_id'            => $new_post_id,
+                'post_id'            => $primary_id,
+                'created_ids'        => $created_ids,
+                'created_items'      => $created_items,
+                'snapshot_id'        => $snapshot_id,
                 'action_type'        => $action_type,
                 'verificationStatus' => 'VERIFIED_EXACT_MATCH',
                 'executedAt'         => time(),
+            ));
+        }
+
+        if ($action_type === 'delete_post') {
+            $target_id = isset($params['post_id']) ? intval($params['post_id']) : (isset($proposed_values['post_id']) ? intval($proposed_values['post_id']) : 0);
+            if ($target_id > 0) {
+                wp_delete_post($target_id, true);
+                clean_post_cache($target_id);
+            }
+            return rest_ensure_response(array(
+                'execution_state' => 'SUCCEEDED',
+                'action_type'     => 'delete_post',
+                'post_id'         => $target_id,
+                'executedAt'      => time(),
             ));
         }
 
@@ -976,31 +1035,31 @@ class WP_AI_Executor {
             }
 
             if ($action_type === 'update_meta_title' || isset($proposed_values['meta_title'])) {
-                $title_val = sanitize_text_field(isset($proposed_values['meta_title']) ? $proposed_values['meta_title'] : (isset($proposed_values['value']) ? $proposed_values['value'] : ''));
-                if (!empty($title_val)) {
-                    update_post_meta($post_id, '_yoast_wpseo_title', $title_val);
-                    update_post_meta($post_id, 'rank_math_title', $title_val);
-                    update_post_meta($post_id, '_aioseo_title', $title_val);
-                    update_post_meta($post_id, '_seopress_titles_title', $title_val);
-                }
+                $raw_title = isset($proposed_values['meta_title']) ? $proposed_values['meta_title'] : (isset($proposed_values['value']) ? $proposed_values['value'] : '');
+                $raw_title_str = is_string($raw_title) ? $raw_title : (is_numeric($raw_title) ? (string)$raw_title : '');
+                $title_val = in_array(strtolower(trim($raw_title_str)), array('remove', 'clear')) ? '' : sanitize_text_field($raw_title_str);
+                update_post_meta($post_id, '_yoast_wpseo_title', $title_val);
+                update_post_meta($post_id, 'rank_math_title', $title_val);
+                update_post_meta($post_id, '_aioseo_title', $title_val);
+                update_post_meta($post_id, '_seopress_titles_title', $title_val);
             }
 
             if ($action_type === 'update_meta_description' || isset($proposed_values['meta_description'])) {
-                $desc_val = sanitize_text_field(isset($proposed_values['meta_description']) ? $proposed_values['meta_description'] : (isset($proposed_values['value']) ? $proposed_values['value'] : ''));
-                if (!empty($desc_val)) {
-                    update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc_val);
-                    update_post_meta($post_id, 'rank_math_description', $desc_val);
-                    update_post_meta($post_id, '_aioseo_description', $desc_val);
-                    update_post_meta($post_id, '_seopress_titles_desc', $desc_val);
-                }
+                $raw_desc = isset($proposed_values['meta_description']) ? $proposed_values['meta_description'] : (isset($proposed_values['value']) ? $proposed_values['value'] : '');
+                $raw_desc_str = is_string($raw_desc) ? $raw_desc : (is_numeric($raw_desc) ? (string)$raw_desc : '');
+                $desc_val = in_array(strtolower(trim($raw_desc_str)), array('remove', 'clear')) ? '' : sanitize_text_field($raw_desc_str);
+                update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc_val);
+                update_post_meta($post_id, 'rank_math_description', $desc_val);
+                update_post_meta($post_id, '_aioseo_description', $desc_val);
+                update_post_meta($post_id, '_seopress_titles_desc', $desc_val);
             }
 
             if ($action_type === 'update_focus_keyword' || isset($proposed_values['focus_keyword'])) {
-                $kw_val = sanitize_text_field(isset($proposed_values['focus_keyword']) ? $proposed_values['focus_keyword'] : (isset($proposed_values['value']) ? $proposed_values['value'] : ''));
-                if (!empty($kw_val)) {
-                    update_post_meta($post_id, '_yoast_wpseo_focuskw', $kw_val);
-                    update_post_meta($post_id, 'rank_math_focus_keyword', $kw_val);
-                }
+                $raw_kw = isset($proposed_values['focus_keyword']) ? $proposed_values['focus_keyword'] : (isset($proposed_values['value']) ? $proposed_values['value'] : '');
+                $raw_kw_str = is_string($raw_kw) ? $raw_kw : (is_numeric($raw_kw) ? (string)$raw_kw : '');
+                $kw_val = in_array(strtolower(trim($raw_kw_str)), array('remove', 'clear')) ? '' : sanitize_text_field($raw_kw_str);
+                update_post_meta($post_id, '_yoast_wpseo_focuskw', $kw_val);
+                update_post_meta($post_id, 'rank_math_focus_keyword', $kw_val);
             }
 
             // 4. Strict Post-Write Cache Clean & Verification

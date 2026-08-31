@@ -60,44 +60,6 @@ export default function ChatGPTPage() {
     }
   };
 
-  // Storage Key Helper: User-scoped and Site-scoped
-  const getChatStorageKey = React.useCallback(() => {
-    if (!user) return "wp_ai_chat_history_guest";
-    return `wp_ai_chat_history_user_${user.id}_site_${activeSite?.id || "none"}`;
-  }, [user?.id, activeSite?.id]);
-
-  // Load saved chat history when user or active site changes
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!user) {
-      setMessages([]);
-      return;
-    }
-    const storageKey = getChatStorageKey();
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setMessages(parsed);
-          return;
-        }
-      } catch (e) {
-        console.warn("Failed to parse saved chat history:", e);
-      }
-    }
-    setMessages([]);
-  }, [user?.id, activeSite?.id, getChatStorageKey]);
-
-  // Persist messages to localStorage whenever they update
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storageKey = getChatStorageKey();
-    if (messages.length > 0) {
-      localStorage.setItem(storageKey, JSON.stringify(messages));
-    }
-  }, [messages, getChatStorageKey]);
-
   // 1. Initial Load Auth & Site Fetch
   React.useEffect(() => {
     fetch("/api/auth/me")
@@ -121,44 +83,40 @@ export default function ChatGPTPage() {
       .catch(() => {});
   }, []);
 
+  // Load persistent chat history from PostgreSQL database when user or active site changes
   React.useEffect(() => {
-    if (activeSite && messages.length === 0) {
-      setIsLoading(true);
-      fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: "hello",
-          siteId: activeSite.id,
-        })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.reply) {
-          setMessages([
-            {
-              id: `ai-${Date.now()}`,
-              sender: "ai",
-              text: data.reply,
-              suggestions: data.suggestions || [],
-              site: data.site || activeSite,
-              proposalDraft: data.proposalDraft,
-            }
-          ]);
+    if (!user || !activeSite?.id) {
+      setMessages([]);
+      return;
+    }
+
+    let isSubscribed = true;
+    setIsLoading(true);
+
+    fetch(`/api/chat/history?siteId=${activeSite.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isSubscribed) return;
+        if (data?.messages && Array.isArray(data.messages)) {
+          setMessages(data.messages);
+        } else {
+          setMessages([]);
         }
       })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
-    }
-  }, [activeSite, messages.length]);
+      .catch((err) => {
+        console.error("Failed to load chat history from database:", err);
+      })
+      .finally(() => {
+        if (isSubscribed) setIsLoading(false);
+      });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [user?.id, activeSite?.id]);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
-    if (typeof window !== "undefined") {
-      const storageKey = getChatStorageKey();
-      localStorage.removeItem(storageKey);
-      localStorage.removeItem("wp_ai_chat_history_guest");
-    }
     setMessages([]);
     setUser(null);
     setUserSites([]);
@@ -169,10 +127,6 @@ export default function ChatGPTPage() {
     setMessages([]);
     setInputPrompt("");
     setSelectedImage(null);
-    if (typeof window !== "undefined") {
-      const storageKey = getChatStorageKey();
-      localStorage.removeItem(storageKey);
-    }
   };
 
   // 2. Submit Prompt Handler

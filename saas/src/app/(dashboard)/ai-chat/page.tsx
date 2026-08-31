@@ -85,40 +85,57 @@ export default function AIChatPage() {
 
   React.useEffect(() => {
     if (!selectedSiteId) return;
-    async function loadSiteState() {
+    async function loadSiteData() {
       try {
-        const res = await fetch(`/api/websites/${selectedSiteId}/memory`);
-        if (res.ok) {
-          const data = await res.json();
-          const stateRecord = data.memories?.find((m: any) => m.key === "site_generation_state");
+        // Fetch site memory state
+        const memRes = await fetch(`/api/websites/${selectedSiteId}/memory`);
+        let parsedState: any = null;
+        if (memRes.ok) {
+          const memData = await memRes.json();
+          const stateRecord = memData.memories?.find((m: any) => m.key === "site_generation_state");
           if (stateRecord) {
-            const parsedState = JSON.parse(stateRecord.value);
+            parsedState = JSON.parse(stateRecord.value);
             setActiveState(parsedState);
-            setMessages([
-              {
-                id: "welcome",
-                sender: "ai",
-                text: `Welcome back! We are currently working on **Milestone ${parsedState.current_milestone} — ${milestones[parsedState.current_milestone]?.title || "Builder Phase"}**.\n\nType your business details or commands to proceed, or reset the state by typing \`reset\` to start a new build.`,
-                time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              }
-            ]);
           } else {
             setActiveState(null);
-            setMessages([
-              {
-                id: "welcome",
-                sender: "ai",
-                text: `Welcome to the **WordPress AI Website Builder**! Select a connected website and type "build a cleaning company website" (or any business type) to initialize the autonomous generation state machine! ✨`,
-                time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              }
-            ]);
           }
         }
+
+        // Fetch database-persisted chat history
+        const histRes = await fetch(`/api/chat/history?siteId=${selectedSiteId}`);
+        if (histRes.ok) {
+          const histData = await histRes.json();
+          if (histData.messages && Array.isArray(histData.messages) && histData.messages.length > 0) {
+            setMessages(histData.messages);
+            return;
+          }
+        }
+
+        // Default welcome message if history is empty
+        if (parsedState) {
+          setMessages([
+            {
+              id: "welcome",
+              sender: "ai",
+              text: `Welcome back! We are currently working on **Milestone ${parsedState.current_milestone} — ${milestones[parsedState.current_milestone]?.title || "Builder Phase"}**.\n\nType your business details or commands to proceed, or reset the state by typing \`reset\` to start a new build.`,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            }
+          ]);
+        } else {
+          setMessages([
+            {
+              id: "welcome",
+              sender: "ai",
+              text: `Welcome to the **WordPress AI Website Builder**! Select a connected website and type "build a cleaning company website" (or any business type) to initialize the autonomous generation state machine! ✨`,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            }
+          ]);
+        }
       } catch (e) {
-        console.error("Failed to load site state:", e);
+        console.error("Failed to load site history:", e);
       }
     }
-    loadSiteState();
+    loadSiteData();
   }, [selectedSiteId]);
 
   const handleSendMessage = async (e: React.FormEvent) => {

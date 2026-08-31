@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    let { siteId, entityId, actionType, proposedValue, currentValue, pageTitle, pageSlug } = body;
+    let { siteId, entityId, actionType, proposedValue, currentValue, pageTitle, pageSlug, ruleId = "" } = body;
 
     const proposedValFinal = proposedValue !== undefined ? proposedValue : body.suggestedValue;
 
@@ -56,7 +56,11 @@ export async function POST(req: Request) {
     const targetPostId = parseInt(entityId, 10) || 1;
     const proposedValuesPayload: Record<string, any> = {};
 
-    if (actionType === "update_meta_title") {
+    if (actionType !== "create_post" && typeof proposedValue === "object" && proposedValue !== null && (Array.isArray(proposedValue.targets) || Array.isArray(proposedValue.items))) {
+      proposedValuesPayload.targets = proposedValue.targets || proposedValue.items;
+    } else if (actionType === "create_post" && typeof proposedValue === "object" && proposedValue !== null && Array.isArray(proposedValue.items)) {
+      proposedValuesPayload.items = proposedValue.items;
+    } else if (actionType === "update_meta_title") {
       proposedValuesPayload.meta_title = proposedValue;
     } else if (actionType === "update_meta_description") {
       proposedValuesPayload.meta_description = proposedValue;
@@ -97,10 +101,14 @@ export async function POST(req: Request) {
     } else if (actionType === "update_post_excerpt") {
       proposedValuesPayload.post_excerpt = proposedValue;
     } else if (actionType === "create_post") {
-      proposedValuesPayload.post_title = proposedValue.post_title || proposedValue.title || "New Page";
-      proposedValuesPayload.post_content = proposedValue.post_content || proposedValue.content || "";
-      proposedValuesPayload.post_type = proposedValue.post_type || "page";
-      proposedValuesPayload.post_status = proposedValue.post_status || "publish";
+      if (typeof proposedValue === "object" && proposedValue !== null && Array.isArray(proposedValue.items)) {
+        proposedValuesPayload.items = proposedValue.items;
+      } else {
+        proposedValuesPayload.post_title = proposedValue.post_title || proposedValue.title || "New Page";
+        proposedValuesPayload.post_content = proposedValue.post_content || proposedValue.content || "";
+        proposedValuesPayload.post_type = proposedValue.post_type || "page";
+        proposedValuesPayload.post_status = proposedValue.post_status || "publish";
+      }
     } else if (actionType === "create_menu") {
       proposedValuesPayload.menu_name = proposedValue.menu_name || "Main Menu";
       proposedValuesPayload.menu_items = proposedValue.menu_items || [];
@@ -116,63 +124,175 @@ export async function POST(req: Request) {
       proposedValuesPayload.meta = { [actionType]: proposedValue };
     }
 
-    // Construct body payload for WordPress REST API
-    const requestBodyObj = {
-      post_id: targetPostId,
-      target_checksum: "bypass",
-      action_type: actionType,
-      proposed_values: proposedValuesPayload,
-    };
-    const requestBodyStr = JSON.stringify(requestBodyObj);
+    // Dispatch helper to send HMAC-signed request to WordPress plugin
+    const dispatchToWp = async (payloadObj: any) => {
+      const payloadStr = JSON.stringify(payloadObj);
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const hmacSecret = (site as any).hmacSecret || "default_hmac_secret";
+      const signature = crypto
+        .createHmac("sha256", hmacSecret)
+        .update(`${timestamp}.${payloadStr}`)
+        .digest("hex");
 
-    // Generate HMAC-SHA256 headers
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const hmacSecret = (site as any).hmacSecret || "default_hmac_secret";
-    const signature = crypto
-      .createHmac("sha256", hmacSecret)
-      .update(`${timestamp}.${requestBodyStr}`)
-      .digest("hex");
+      const targetUrl = site.url.replace(/\/+$/, "") + "/wp-json/wp-ai/v1/execute";
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-WP-AI-Timestamp": timestamp,
+        "X-WP-AI-Signature": signature,
+      };
+      if (site.apiKey) {
+        headers["X-WP-AI-API-Key"] = site.apiKey;
+        headers["Authorization"] = `Bearer ${site.apiKey}`;
+      }
 
-    const targetUrl = site.url.replace(/\/+$/, "") + "/wp-json/wp-ai/v1/execute";
-
-    console.log(`[Safe Edit Apply] Dispatched request to WordPress: ${targetUrl} for Post ID #${targetPostId} (${actionType})`);
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-WP-AI-Timestamp": timestamp,
-      "X-WP-AI-Signature": signature,
-    };
-    if (site.apiKey) {
-      headers["X-WP-AI-API-Key"] = site.apiKey;
-      headers["Authorization"] = `Bearer ${site.apiKey}`;
-    }
-
-    let wpRes;
-    try {
-      wpRes = await fetch(targetUrl, {
+      const res = await fetch(targetUrl, {
         method: "POST",
         headers,
-        body: requestBodyStr,
+        body: payloadStr,
       });
-    } catch (fetchErr: any) {
-      console.error("[Safe Edit Fetch Error]:", fetchErr);
-      return NextResponse.json(
-        {
-          error: `Could not connect to WordPress site at ${site.url}. Please verify that your website is online and reachable, and that your connection keys are valid. (${fetchErr.message})`,
-        },
-        { status: 502 }
-      );
-    }
 
-    const wpResponseData = await wpRes.json().catch(() => ({}));
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok || resData.code || resData.error) {
+        throw new Error(resData.message || resData.error || "WordPress plugin rejected execution.");
+      }
+      return resData;
+    };
 
-    if (!wpRes.ok || wpResponseData.code || wpResponseData.error) {
-      const errorDetail = wpResponseData.message || wpResponseData.error || "WordPress plugin rejected update.";
-      console.error("[Safe Edit Failed]:", wpResponseData);
-      return NextResponse.json(
-        { error: `WordPress update failed: ${errorDetail}`, wpResponse: wpResponseData },
-        { status: wpRes.status || 500 }
-      );
+    let wpResponseData: any = null;
+
+    const bulkGeneralTargets = (Array.isArray(proposedValuesPayload.targets) && proposedValuesPayload.targets.length > 0)
+      ? proposedValuesPayload.targets
+      : (Array.isArray(proposedValuesPayload.items) && actionType !== "create_post" && proposedValuesPayload.items.length > 0)
+      ? proposedValuesPayload.items
+      : null;
+
+    if (actionType === "create_post" && Array.isArray(proposedValuesPayload.items) && proposedValuesPayload.items.length > 0) {
+      console.log(`[Safe Edit Bulk Apply] Executing bulk creation of ${proposedValuesPayload.items.length} items on WordPress...`);
+      const createdItems: any[] = [];
+      const createdIds: number[] = [];
+
+      let lastSnapshotId = "";
+      for (const item of proposedValuesPayload.items) {
+        const singlePayload = {
+          post_id: 0,
+          target_checksum: "bypass",
+          action_type: "create_post",
+          proposed_values: {
+            post_title: item.post_title || item.title || "New Item",
+            post_content: item.post_content || item.content || "",
+            post_type: item.post_type || "page",
+            post_status: item.post_status || "publish",
+          },
+        };
+
+        const singleRes = await dispatchToWp(singlePayload);
+        const newId = singleRes.post_id || singleRes.created_ids?.[0];
+        if (!newId) {
+          throw new Error(`WordPress failed to return post_id for created item "${item.title || item.post_title}"`);
+        }
+        if (singleRes.snapshot_id) lastSnapshotId = singleRes.snapshot_id;
+
+        createdIds.push(newId);
+        createdItems.push({
+          post_id: newId,
+          post_title: item.title || item.post_title,
+          post_type: item.post_type || "page",
+          status: "created",
+        });
+      }
+
+      wpResponseData = {
+        execution_state: "SUCCEEDED",
+        post_id: createdIds[0],
+        created_ids: createdIds,
+        created_items: createdItems,
+        snapshot_id: lastSnapshotId || `wp_ai_snapshot_create_${Date.now()}`,
+        action_type: actionType,
+        verificationStatus: "VERIFIED_EXACT_MATCH",
+        executedAt: Math.floor(Date.now() / 1000),
+      };
+    } else if (bulkGeneralTargets && bulkGeneralTargets.length > 0) {
+      console.log(`[Safe Edit Bulk Apply] Executing bulk ${actionType} updates for ${bulkGeneralTargets.length} items on WordPress...`);
+      const updatedTargets: any[] = [];
+      const targetIds: number[] = [];
+      const targetSnapshots: { post_id: number; snapshot_id: string }[] = [];
+
+      for (const targetItem of bulkGeneralTargets) {
+        const tId = Number(targetItem.post_id || targetItem.entityId || targetItem.attachment_id || targetItem.id || 0);
+        const tVal = targetItem.meta_description ?? targetItem.meta_title ?? targetItem.alt_text ?? targetItem.description ?? targetItem.value ?? targetItem.suggestedValue ?? "";
+
+        if (!tId || tId <= 0) {
+          throw new Error(`Invalid or missing ID for bulk ${actionType} target "${targetItem.title || targetItem.pageTitle || 'Unknown Target'}"`);
+        }
+
+        const propVals: Record<string, any> = {};
+        if (actionType === "update_meta_title" || ruleId === "SEO_004") {
+          propVals.meta_title = tVal;
+          propVals.value = tVal;
+        } else if (actionType === "update_alt_text" || ruleId === "MEDIA_001") {
+          propVals.alt_text = tVal;
+          propVals.attachment_id = tId;
+          propVals.value = tVal;
+        } else {
+          propVals.meta_description = tVal;
+          propVals.value = tVal;
+        }
+
+        const singlePayload = {
+          post_id: tId,
+          target_checksum: "bypass",
+          action_type: actionType,
+          proposed_values: propVals,
+        };
+
+        const singleRes = await dispatchToWp(singlePayload);
+        if (!singleRes || singleRes.execution_state !== "SUCCEEDED" || singleRes.verificationStatus !== "VERIFIED_EXACT_MATCH") {
+          throw new Error(`Verification failed for Target ID #${tId} ("${targetItem.title || targetItem.pageTitle || tId}")`);
+        }
+
+        targetIds.push(tId);
+        if (singleRes.snapshot_id) {
+          targetSnapshots.push({ post_id: tId, snapshot_id: singleRes.snapshot_id });
+        }
+        updatedTargets.push({
+          post_id: tId,
+          pageTitle: targetItem.title || targetItem.pageTitle || `Target ID #${tId}`,
+          value: tVal,
+          status: "updated",
+          verificationStatus: "VERIFIED_EXACT_MATCH",
+        });
+      }
+
+      wpResponseData = {
+        execution_state: "SUCCEEDED",
+        post_id: targetIds[0],
+        target_ids: targetIds,
+        target_snapshots: targetSnapshots,
+        updated_targets: updatedTargets,
+        snapshot_id: targetSnapshots[0]?.snapshot_id || `wp_ai_snapshot_${actionType}_${Date.now()}`,
+        action_type: actionType,
+        verificationStatus: "VERIFIED_EXACT_MATCH",
+        executedAt: Math.floor(Date.now() / 1000),
+      };
+    } else {
+      const requestBodyObj = {
+        post_id: targetPostId,
+        target_checksum: "bypass",
+        action_type: actionType,
+        proposed_values: proposedValuesPayload,
+      };
+
+      try {
+        wpResponseData = await dispatchToWp(requestBodyObj);
+      } catch (fetchErr: any) {
+        console.error("[Safe Edit Fetch Error]:", fetchErr);
+        return NextResponse.json(
+          {
+            error: `Could not connect to WordPress site at ${site.url}. Please verify that your website is online and reachable. (${fetchErr.message})`,
+          },
+          { status: 502 }
+        );
+      }
     }
 
     console.log(`[Safe Edit Success] Verified on WordPress for Post ID #${targetPostId}:`, wpResponseData);
@@ -220,6 +340,11 @@ export async function POST(req: Request) {
           snapshotId: wpResponseData?.snapshot_id || `wp_ai_snapshot_${resolvedPostId}_${Date.now()}`,
           postId: resolvedPostId,
           actionType,
+          created_ids: actionType === "create_post" ? (wpResponseData?.created_ids || [resolvedPostId]) : undefined,
+          target_ids: wpResponseData?.target_ids,
+          target_snapshots: wpResponseData?.target_snapshots,
+          updated_targets: wpResponseData?.updated_targets,
+          is_new_creation: actionType === "create_post",
         },
         sideEffects: [],
       },
