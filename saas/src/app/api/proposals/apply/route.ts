@@ -22,14 +22,19 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    let { siteId, entityId, actionType, proposedValue, currentValue, pageTitle, pageSlug, ruleId = "" } = body;
+    const draft = body.proposalDraft || {};
+    let siteId = body.siteId || draft.siteId;
+    let entityId = body.entityId !== undefined ? body.entityId : draft.entityId;
+    let actionType = body.actionType || draft.actionType;
+    let proposedValue = body.proposedValue !== undefined ? body.proposedValue : (body.suggestedValue !== undefined ? body.suggestedValue : (draft.proposedValue !== undefined ? draft.proposedValue : draft.suggestedValue));
+    let currentValue = body.currentValue !== undefined ? body.currentValue : draft.currentValue;
+    let pageTitle = body.pageTitle || draft.pageTitle;
+    let pageSlug = body.pageSlug || draft.pageSlug || draft.affectedUrl;
+    let ruleId = body.ruleId || draft.ruleId || "";
 
-    const proposedValFinal = proposedValue !== undefined ? proposedValue : body.suggestedValue;
-
-    if (!actionType || proposedValFinal === undefined) {
+    if (!actionType || proposedValue === undefined) {
       return NextResponse.json({ error: "Missing required execution parameters." }, { status: 400 });
     }
-    proposedValue = proposedValFinal;
 
     let site = null;
     if (siteId) {
@@ -61,11 +66,17 @@ export async function POST(req: Request) {
     } else if (actionType === "create_post" && typeof proposedValue === "object" && proposedValue !== null && Array.isArray(proposedValue.items)) {
       proposedValuesPayload.items = proposedValue.items;
     } else if (actionType === "update_meta_title") {
-      proposedValuesPayload.meta_title = proposedValue;
+      proposedValuesPayload.meta_title = typeof proposedValue === "object" && proposedValue !== null
+        ? (proposedValue.meta_title ?? proposedValue.value ?? proposedValue.title ?? "")
+        : proposedValue;
     } else if (actionType === "update_meta_description") {
-      proposedValuesPayload.meta_description = proposedValue;
+      proposedValuesPayload.meta_description = typeof proposedValue === "object" && proposedValue !== null
+        ? (proposedValue.meta_description ?? proposedValue.value ?? proposedValue.description ?? "")
+        : proposedValue;
     } else if (actionType === "update_focus_keyword") {
-      proposedValuesPayload.focus_keyword = proposedValue;
+      proposedValuesPayload.focus_keyword = typeof proposedValue === "object" && proposedValue !== null
+        ? (proposedValue.focus_keyword ?? proposedValue.value ?? proposedValue.keyword ?? "")
+        : proposedValue;
     } else if (actionType === "update_alt_text") {
       if (typeof proposedValue === "object" && proposedValue !== null) {
         if (Array.isArray(proposedValue.targets)) {

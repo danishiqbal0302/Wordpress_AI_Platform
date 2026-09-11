@@ -1036,6 +1036,9 @@ class WP_AI_Executor {
 
             if ($action_type === 'update_meta_title' || isset($proposed_values['meta_title'])) {
                 $raw_title = isset($proposed_values['meta_title']) ? $proposed_values['meta_title'] : (isset($proposed_values['value']) ? $proposed_values['value'] : '');
+                if (is_array($raw_title)) {
+                    $raw_title = isset($raw_title['meta_title']) ? $raw_title['meta_title'] : (isset($raw_title['value']) ? $raw_title['value'] : (isset($raw_title['title']) ? $raw_title['title'] : ''));
+                }
                 $raw_title_str = is_string($raw_title) ? $raw_title : (is_numeric($raw_title) ? (string)$raw_title : '');
                 $title_val = in_array(strtolower(trim($raw_title_str)), array('remove', 'clear')) ? '' : sanitize_text_field($raw_title_str);
                 update_post_meta($post_id, '_yoast_wpseo_title', $title_val);
@@ -1046,6 +1049,9 @@ class WP_AI_Executor {
 
             if ($action_type === 'update_meta_description' || isset($proposed_values['meta_description'])) {
                 $raw_desc = isset($proposed_values['meta_description']) ? $proposed_values['meta_description'] : (isset($proposed_values['value']) ? $proposed_values['value'] : '');
+                if (is_array($raw_desc)) {
+                    $raw_desc = isset($raw_desc['meta_description']) ? $raw_desc['meta_description'] : (isset($raw_desc['value']) ? $raw_desc['value'] : (isset($raw_desc['description']) ? $raw_desc['description'] : ''));
+                }
                 $raw_desc_str = is_string($raw_desc) ? $raw_desc : (is_numeric($raw_desc) ? (string)$raw_desc : '');
                 $desc_val = in_array(strtolower(trim($raw_desc_str)), array('remove', 'clear')) ? '' : sanitize_text_field($raw_desc_str);
                 update_post_meta($post_id, '_yoast_wpseo_metadesc', $desc_val);
@@ -1056,6 +1062,9 @@ class WP_AI_Executor {
 
             if ($action_type === 'update_focus_keyword' || isset($proposed_values['focus_keyword'])) {
                 $raw_kw = isset($proposed_values['focus_keyword']) ? $proposed_values['focus_keyword'] : (isset($proposed_values['value']) ? $proposed_values['value'] : '');
+                if (is_array($raw_kw)) {
+                    $raw_kw = isset($raw_kw['focus_keyword']) ? $raw_kw['focus_keyword'] : (isset($raw_kw['value']) ? $raw_kw['value'] : (isset($raw_kw['keyword']) ? $raw_kw['keyword'] : ''));
+                }
                 $raw_kw_str = is_string($raw_kw) ? $raw_kw : (is_numeric($raw_kw) ? (string)$raw_kw : '');
                 $kw_val = in_array(strtolower(trim($raw_kw_str)), array('remove', 'clear')) ? '' : sanitize_text_field($raw_kw_str);
                 update_post_meta($post_id, '_yoast_wpseo_focuskw', $kw_val);
